@@ -1,0 +1,301 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <script>
+    // Portuguese page: back to English only if the visitor picked it with the PT/EN switch.
+    (function () {
+      var lang;
+      try { lang = localStorage.getItem("lang"); } catch (e) {}
+      if (lang === "en") location.replace("../" + location.search + location.hash);
+    })();
+  </script>
+  <title>Free My TV — uma tela inicial rápida e sem anúncios para a Google TV</title>
+  <meta name="description" content="Tela inicial de código aberto para Google TV e Android TV. Sem anúncios, a 60 fps, com o que está em alta nos seus próprios apps e um visual que acompanha o pôr do sol. Um botão para desfazer.">
+  <link rel="canonical" href="https://freemytv.io/pt/">
+  <link rel="alternate" hreflang="en" href="https://freemytv.io/">
+  <link rel="alternate" hreflang="pt-BR" href="https://freemytv.io/pt/">
+  <link rel="alternate" hreflang="x-default" href="https://freemytv.io/">
+  <meta name="theme-color" content="#F5F5F7">
+  <meta property="og:type" content="website">
+  <meta property="og:locale" content="pt_BR">
+  <meta property="og:locale:alternate" content="en_US">
+  <meta property="og:url" content="https://freemytv.io/pt/">
+  <meta property="og:title" content="Free My TV">
+  <meta property="og:description" content="Uma tela inicial rápida e sem anúncios para a Google TV. Código aberto. Um botão para desfazer.">
+  <meta property="og:image" content="https://freemytv.io/assets/og-pt.jpg">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Free My TV">
+  <meta name="twitter:description" content="Uma tela inicial rápida e sem anúncios para a Google TV. Código aberto. Um botão para desfazer.">
+  <meta name="twitter:image" content="https://freemytv.io/assets/og-pt.jpg">
+  <link rel="icon" type="image/png" href="../assets/favicon-64.png">
+  <link rel="apple-touch-icon" href="../assets/apple-touch-icon.png">
+  <link rel="preload" href="../assets/fonts/InterVariable.ttf" as="font" type="font/ttf" crossorigin>
+  <link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+  <div class="sky" aria-hidden="true"><span class="blob b1"></span><span class="blob b2"></span><span class="blob b3"></span></div>
+
+  <header class="nav" id="nav">
+    <a class="brand" href="#top" aria-label="Free My TV, voltar ao topo">
+      <img src="../assets/icon-512.png" alt="" width="30" height="30">
+      <span>Free My TV</span>
+    </a>
+    <nav class="links" aria-label="Seções">
+      <a href="#features">Recursos</a>
+      <a href="#how">Como funciona</a>
+      <a href="#install">Instalar</a>
+      <a href="#faq">Dúvidas</a>
+    </nav>
+    <div class="nav-end">
+      <a class="lang" href="../" hreflang="en" lang="en" data-lang="en" aria-label="Read in English">EN</a>
+      <a class="btn btn-dark btn-sm" href="https://github.com/simbasjungles/free-my-tv" rel="noopener">
+      <svg class="gh" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+      <span>GitHub</span>
+      </a>
+    </div>
+  </header>
+
+  <main id="top">
+    <!-- Hero -->
+    <section class="hero">
+      <div class="hero-copy">
+        <p class="kicker" data-reveal>Código aberto · Google TV</p>
+        <h1 data-reveal>Liberte sua <span class="grad">TV.</span></h1>
+        <p class="lede" data-reveal>Troque a tela inicial cheia de anúncios por uma rápida e limpa. O que está em alta nos seus próprios apps, o clima num relance e um visual que acompanha o pôr do sol. Um botão para desfazer.</p>
+        <div class="cta" data-reveal>
+          <a class="btn btn-dark" href="https://github.com/simbasjungles/free-my-tv" rel="noopener">Baixar no GitHub <span aria-hidden="true">→</span></a>
+          <button class="btn btn-glass" type="button" data-film><span class="play" aria-hidden="true"></span>Assista ao filme de 45 segundos</button>
+        </div>
+        <p class="built" data-reveal>Feito com <b>Claude Code</b> · licença MIT</p>
+      </div>
+      <div class="hero-stage" data-reveal>
+        <div class="tv tilt" id="heroTv">
+          <div class="screen">
+            <video data-src="../assets/nav.mp4" poster="../assets/nav-poster.webp" muted loop playsinline preload="none" aria-label="A tela inicial do Free My TV, passando pelos apps"></video>
+          </div>
+        </div>
+        <div class="floor" aria-hidden="true"></div>
+      </div>
+      <ul class="stats" data-reveal>
+        <li><b>60 fps</b><span>fluido na GPU da própria TV</span></li>
+        <li><b>−60%</b><span>de memória na tela inicial</span></li>
+        <li><b>0</b><span>anúncios, banners ou promoções</span></li>
+        <li><b>1 botão</b><span>para voltar ao original</span></li>
+      </ul>
+    </section>
+
+    <!-- Before / after -->
+    <section class="section compare" id="compare">
+      <div class="head" data-reveal>
+        <p class="kicker">Antes → depois</p>
+        <h2>Sua tela inicial não deveria ser um outdoor.</h2>
+        <p class="sub">Arraste para comparar. Mesma TV, mesmos apps, sem as fileiras patrocinadas.</p>
+      </div>
+      <div class="tv ba" id="ba" data-reveal tabindex="0" role="slider" aria-label="Compare a tela inicial de fábrica com o Free My TV" aria-valuemin="0" aria-valuemax="100" aria-valuenow="50">
+        <div class="screen">
+          <img class="after" src="../assets/home-day.webp" alt="A tela inicial do Free My TV: três destaques e uma prateleira de vidro com os apps" loading="lazy">
+          <div class="before-wrap"><img class="before" src="../assets/before.webp" alt="Uma tela inicial de fábrica típica, cheia de fileiras patrocinadas (ilustração)" loading="lazy"></div>
+          <span class="tag tag-l">Tela de fábrica <em>(ilustração)</em></span>
+          <span class="tag tag-r">Free My TV</span>
+          <div class="handle" aria-hidden="true"><span></span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Features -->
+    <section class="section features" id="features">
+      <article class="feature" data-reveal>
+        <div class="copy">
+          <p class="kicker">Início</p>
+          <h3>Seus apps em primeiro lugar.</h3>
+          <p>Os apps de streaming que você usa de verdade, numa prateleira de vidro que ganha vida com o controle. Sem fileiras de promoções, sem anúncios que tocam sozinhos, nada que você não pediu.</p>
+        </div>
+        <div class="tv"><div class="screen"><video data-src="../assets/nav.mp4" poster="../assets/nav-poster.webp" muted loop playsinline preload="none" aria-label="Navegando pela prateleira de apps"></video></div></div>
+      </article>
+
+      <article class="feature flip" data-reveal>
+        <div class="copy">
+          <p class="kicker">Destaques</p>
+          <h3>Em alta, não patrocinado.</h3>
+          <p>Três destaques novos a cada hora, entre o que está em alta na semana e os lançamentos, só dos apps que você já tem. Filmes e séries têm abas próprias. Com dados do TMDB.</p>
+        </div>
+        <div class="tv"><div class="screen"><video data-src="../assets/tabs.mp4" poster="../assets/tabs-poster.webp" muted loop playsinline preload="none" aria-label="Trocando entre as abas de destaques, filmes e séries"></video></div></div>
+      </article>
+
+      <article class="feature" data-reveal>
+        <div class="copy">
+          <p class="kicker">Velocidade</p>
+          <h3>Clima e cotações a um toque.</h3>
+          <p>Aperte para baixo e veja a previsão hora a hora, o nascer e o pôr do sol e as cotações de cripto ao vivo. A gaveta desliza a 60 quadros por segundo, todos no tempo certo, no chip modesto da própria TV.</p>
+          <div class="hud" aria-hidden="true"><i></i><b>60 FPS</b><svg viewBox="0 0 120 24" preserveAspectRatio="none"><polyline id="spark" fill="none" points=""/></svg><span>16,6 ms</span></div>
+        </div>
+        <div class="tv"><div class="screen"><video data-src="../assets/drawer.mp4" poster="../assets/drawer-poster.webp" muted loop playsinline preload="none" aria-label="A gaveta com o clima e as cotações de cripto abrindo"></video></div></div>
+      </article>
+    </section>
+
+    <!-- Sunset: scroll to go from day to night -->
+    <section class="sunset" id="sunset" aria-label="Claro de dia, escuro à noite">
+      <div class="sticky">
+        <div class="stars" aria-hidden="true"></div>
+        <div class="sun" aria-hidden="true"></div>
+        <div class="moon" aria-hidden="true"></div>
+        <div class="head">
+          <p class="kicker"><span class="clock" id="sunClock">17:20</span> · o pôr do sol da sua cidade</p>
+          <h2><span class="w-day">Claro de dia.</span> <span class="w-night">Escuro à noite.</span></h2>
+          <p class="sub">O Free My TV acompanha o pôr do sol real de onde você mora e passa aos poucos para um visual escuro, como o seu celular. Sem nenhum ajuste.</p>
+        </div>
+        <div class="tv"><div class="screen">
+          <img src="../assets/day.webp" alt="A tela inicial durante o dia" loading="lazy">
+          <img class="night" src="../assets/night.webp" alt="A mesma tela inicial à noite" loading="lazy">
+        </div></div>
+      </div>
+    </section>
+
+    <!-- Numbers -->
+    <section class="section numbers" id="numbers">
+      <div class="head" data-reveal>
+        <p class="kicker">Medido numa TV de verdade</p>
+        <h2>Mais leve, mais rápida, mais limpa.</h2>
+        <p class="sub">Uma TCL Google TV de 98″ com Android 14: tela de fábrica contra o Free My TV.</p>
+      </div>
+      <div class="cards">
+        <div class="card" data-reveal><b class="big grad-mint"><span data-count="60">0</span><small>fps</small></b><h4>Fluido</h4><p>Cada quadro em 16,6 ms, na GPU da própria TV.</p></div>
+        <div class="card" data-reveal><b class="big grad-sky">−<span data-count="60">0</span>%</b><h4>Memória</h4>
+          <div class="bars"><div><span>Fábrica</span><i style="--w:100%"></i><em>242 MB</em></div><div><span>Free My TV</span><i style="--w:40%"></i><em>96 MB</em></div></div>
+        </div>
+        <div class="card" data-reveal><b class="big grad-sun">0</b><h4>Anúncios</h4><p>Nenhum banner, fileira ou promoção patrocinada. Nem um.</p></div>
+      </div>
+    </section>
+
+    <!-- How it works -->
+    <section class="section how" id="how">
+      <div class="head" data-reveal>
+        <p class="kicker">Como funciona</p>
+        <h2>Sem root. Sem nuvem. Só a sua TV.</h2>
+      </div>
+      <ol class="steps">
+        <li class="step" data-reveal>
+          <span class="num">1</span>
+          <h4>Permita uma vez</h4>
+          <p>Ative as opções do desenvolvedor e aceite o aviso "Permitir a depuração USB?" na TV. É a única permissão de que ele precisa.</p>
+        </li>
+        <li class="step" data-reveal>
+          <span class="num">2</span>
+          <h4>Ele troca a tela inicial</h4>
+          <p>Pelo ADB da própria TV (localhost, nada sai da TV), ele vira a tela inicial e o protetor de tela e desliga o launcher de fábrica e uma lista curta de apps de propaganda. Nada é desinstalado.</p>
+        </li>
+        <li class="step" data-reveal>
+          <span class="num">3</span>
+          <h4>Desfaça quando quiser</h4>
+          <p>Um botão traz de volta a tela inicial de fábrica, o protetor de tela e todos os apps. Se algo der errado, ele volta sozinho.</p>
+        </li>
+      </ol>
+    </section>
+
+    <!-- Install -->
+    <section class="section install" id="install">
+      <div class="head" data-reveal>
+        <p class="kicker">Instalar</p>
+        <h2>Uns dez minutos, do começo ao fim.</h2>
+        <p class="sub">Grátis, de código aberto e fácil de desfazer.</p>
+      </div>
+      <div class="panel" data-reveal>
+        <div class="tabs" role="tablist" aria-label="Forma de instalar">
+          <button role="tab" aria-selected="true" aria-controls="tab-claude" id="t-claude">Com o Claude Code</button>
+          <button role="tab" aria-selected="false" aria-controls="tab-manual" id="t-manual">Manual</button>
+        </div>
+
+        <div class="tabpanel" id="tab-claude" role="tabpanel" aria-labelledby="t-claude">
+          <ol class="howto">
+            <li><b>Na TV:</b> Configurações → Sistema → Sobre → aperte 7 vezes no item <em>Build</em> (o último da lista). De volta em Sistema, abra <em>Opções do desenvolvedor</em> e ative a <em>Depuração USB</em>. Anote o endereço IP da TV (Configurações → Rede e Internet).</li>
+            <li><b>No computador:</b> baixe o código.
+              <div class="code"><code>git clone https://github.com/simbasjungles/free-my-tv &amp;&amp; cd free-my-tv</code><button class="copy-btn" type="button" aria-label="Copiar comando">Copiar</button></div>
+            </li>
+            <li><b>Abra o Claude Code nessa pasta e diga:</b>
+              <div class="code prompt"><code>Instale o Free My TV na minha TV em 192.168.1.50. Eu moro em São Paulo.</code><button class="copy-btn" type="button" aria-label="Copiar pedido">Copiar</button></div>
+              Ele instala o que falta, compila o app e coloca na sua TV. Troque pelo IP da sua TV e pela sua cidade.
+            </li>
+            <li><b>De volta na TV:</b> abra <em>Free My TV</em> → <em>Início</em> → <em>Free My TV</em> e aceite o aviso de depuração (marque <em>Sempre permitir</em>).</li>
+          </ol>
+        </div>
+
+        <div class="tabpanel" id="tab-manual" role="tabpanel" aria-labelledby="t-manual" hidden>
+          <ol class="howto">
+            <li><b>Na TV:</b> ative as <em>Opções do desenvolvedor</em> e a <em>Depuração USB</em> (como na outra aba) e anote o IP dela.</li>
+            <li><b>Ferramentas:</b> um JDK (17+), as ferramentas de linha de comando do Android SDK e o adb. No Mac:
+              <div class="code"><code>brew install --cask temurin android-commandlinetools android-platform-tools &amp;&amp; sdkmanager "build-tools;34.0.0" "platforms;android-34"</code><button class="copy-btn" type="button" aria-label="Copiar comando">Copiar</button></div>
+            </li>
+            <li><b>Compilar:</b> a primeira execução cria o <em>config.properties</em>. Coloque sua cidade lá (e <em>currency=BRL</em> para as cotações em reais) e, para os destaques, uma <a href="https://www.themoviedb.org/settings/api" rel="noopener">chave grátis do TMDB</a>. Depois compile de novo.
+              <div class="code"><code>git clone https://github.com/simbasjungles/free-my-tv &amp;&amp; cd free-my-tv &amp;&amp; ./build.sh</code><button class="copy-btn" type="button" aria-label="Copiar comando">Copiar</button></div>
+            </li>
+            <li><b>Instalar:</b>
+              <div class="code"><code>adb connect 192.168.1.50:5555 &amp;&amp; adb install -r FreeMyTV.apk</code><button class="copy-btn" type="button" aria-label="Copiar comando">Copiar</button></div>
+            </li>
+            <li><b>Na TV:</b> abra <em>Free My TV</em> → <em>Início</em> → <em>Free My TV</em>.</li>
+          </ol>
+        </div>
+      </div>
+    </section>
+
+    <!-- Compatibility -->
+    <section class="section compat" id="compat">
+      <div class="head" data-reveal>
+        <p class="kicker">Compatibilidade</p>
+        <h2>Funciona com qualquer TV.</h2>
+        <p class="sub">Roda direto nas TVs com Google TV e Android TV. Qualquer outra TV ganha o Free My TV com um aparelho Google TV ligado no HDMI.</p>
+      </div>
+      <div class="chips" data-reveal>
+        <span class="chip ok">Google TV</span><span class="chip ok">Android TV</span><span class="chip ok">TCL</span><span class="chip ok">Sony</span>
+        <span class="chip ok">Hisense</span><span class="chip ok">Philips</span><span class="chip ok">Xiaomi</span><span class="chip ok">Chromecast with Google TV</span>
+        <span class="chip ok">Google TV Streamer</span><span class="chip ok">NVIDIA Shield</span><span class="chip ok">onn 4K</span>
+      </div>
+      <p class="note" data-reveal>Outra marca ou modelo? Peça ao Claude: ele lê a sua TV e adapta o Free My TV a ela, da tela inicial que ele troca aos apps que ele arruma.</p>
+    </section>
+
+    <!-- FAQ -->
+    <section class="section faq" id="faq">
+      <div class="head" data-reveal>
+        <p class="kicker">Dúvidas</p>
+        <h2>Boas perguntas.</h2>
+      </div>
+      <div class="qs" data-reveal>
+        <details><summary>É seguro?</summary><p>Ele usa os mesmos comandos das ferramentas de desenvolvedor do próprio Android, de dentro da TV. Nada de root, nada desinstalado: os apps só são desligados e voltam com um botão. Imagem, som, entradas, controle remoto, serviços do Google e Play Store ficam numa lista que ele nunca toca.</p></details>
+        <details><summary>Como eu volto ao original?</summary><p>Abra Free My TV → Início → Original. A tela inicial de fábrica, o protetor de tela e todos os apps voltam exatamente como estavam. Se a tela nova travar três vezes em cinco minutos, ele volta sozinho.</p></details>
+        <details><summary>Muda a qualidade da imagem?</summary><p>Não. Os ajustes de imagem não são tocados e os vídeos passam pelo mesmo caminho no hardware. Medimos a mesma resolução e a mesma fonte de vídeo nos dois modos.</p></details>
+        <details><summary>O que é desligado?</summary><p>A tela inicial e o protetor de tela de fábrica (substituídos), a tela de recuperação do Google TV, Play Games e YouTube Music e, nas TVs TCL, o TCL Channel, as mensagens, a demonstração de loja, o menu de hotel, os manuais e os apps de espelhamento e de registros. O Google Assistente só se você pedir no config.</p></details>
+        <details><summary>Dá para deixar do meu jeito?</summary><p>Essa é a ideia. Abra a pasta no Claude Code e é só pedir: "coloque o Crunchyroll na prateleira", "mostre as cotações em reais", "configure para a minha Sony". Ele muda o código, compila o app e coloca na sua TV.</p></details>
+        <details><summary>Fica em português?</summary><p>Fica. O app segue o idioma da TV, em português ou inglês. Quer outro idioma? Peça ao Claude.</p></details>
+        <details><summary>Ele coleta algum dado?</summary><p>Não. Sem contas, sem análises, sem rastreamento. Ele só fala com o TMDB (destaques), o Open-Meteo (clima, com as coordenadas que você definir) e a Binance (cotações).</p></details>
+        <details><summary>É grátis?</summary><p>Sim. Licença MIT, e a chave do TMDB também é grátis.</p></details>
+      </div>
+    </section>
+
+    <!-- Final CTA -->
+    <section class="final" data-reveal>
+      <h2>Liberte sua TV hoje à noite.</h2>
+      <p class="sub">Código aberto, dez minutos, um botão para desfazer.</p>
+      <div class="cta">
+        <a class="btn btn-dark" href="https://github.com/simbasjungles/free-my-tv" rel="noopener">Baixar no GitHub <span aria-hidden="true">→</span></a>
+        <button class="btn btn-glass" type="button" data-film><span class="play" aria-hidden="true"></span>Assista ao filme</button>
+      </div>
+    </section>
+  </main>
+
+  <footer class="foot">
+    <div class="brand"><img src="../assets/icon-512.png" alt="" width="24" height="24"><span>Free My TV</span></div>
+    <p>Feito com Claude Code. Licença MIT. Sem ligação com o Google, a TCL ou qualquer serviço de streaming; nomes e logos dos apps pertencem aos seus donos.</p>
+    <p>Este produto usa a API do TMDB, mas não é endossado nem certificado pelo TMDB. Dados do clima por <a href="https://open-meteo.com/" rel="noopener">Open-Meteo.com</a> (CC BY 4.0). Cotações da Binance. Ícones: Material Symbols. Fonte: Inter.</p>
+  </footer>
+
+  <dialog class="film" id="film" aria-label="O filme do Free My TV">
+    <button class="close" type="button" aria-label="Fechar">×</button>
+    <video controls playsinline preload="none" poster="../assets/film-poster.webp"><source src="../assets/film.mp4" type="video/mp4"></video>
+  </dialog>
+
+  <script src="../app.js" defer></script>
+</body>
+</html>

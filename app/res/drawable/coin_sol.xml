@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The coin's official logo, flat and in one color (the symbol from the open cryptocurrency-icons set, without
+     the disc). The color comes from the code. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="32dp"
+    android:height="32dp"
+    android:viewportWidth="32"
+    android:viewportHeight="32">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="M 24.706 19.517 H 10.34 a .59 .59 0 0 0 -.415 .17 l -2.838 2.815 a .291 .291 0 0 0 .207 .498 H 21.66 a .59 .59 0 0 0 .415 -.17 l 2.838 -2.816 a .291 .291 0 0 0 -.207 -.497 z m -3.046 -5.292 H 7.294 l -.068 .007 a .291 .291 0 0 0 -.14 .49 l 2.84 2.816 l .07 .06 c .1 .07 .22 .11 .344 .11 h 14.366 l .068 -.007 a .291 .291 0 0 0 .14 -.49 l -2.84 -2.816 l -.07 -.06 a .59 .59 0 0 0 -.344 -.11 z M 24.706 9 H 10.34 a .59 .59 0 0 0 -.415 .17 l -2.838 2.816 a .291 .291 0 0 0 .207 .497 H 21.66 a .59 .59 0 0 0 .415 -.17 l 2.838 -2.815 A .291 .291 0 0 0 24.706 9 z" />
+</vector>

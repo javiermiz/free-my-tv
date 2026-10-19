@@ -213,7 +213,17 @@ final class HomeMode {
             if (adb.shell("cmd package set-home-activity " + home).contains("Success")) return true;
         }
         adb.shell("cmd role remove-role-holder --user 0 android.app.role.HOME " + PKG);
-        return !adb.shell("cmd role get-role-holders --user 0 android.app.role.HOME").contains(PKG);
+        return !ourHome(adb);
+    }
+
+    /** Free My TV is the home screen. Without get-role-holders (some Android 12 builds), asks what HOME opens. */
+    private static boolean ourHome(Adb adb) throws IOException {
+        String holder = adb.shell("cmd role get-role-holders --user 0 android.app.role.HOME").trim();
+        if (holder.isEmpty() || holder.contains(" ")) {
+            holder = adb.shell("cmd package resolve-activity --brief --user 0 -a android.intent.action.MAIN"
+                    + " -c android.intent.category.HOME");
+        }
+        return holder.contains(PKG);
     }
 
     /** Safety net: our home screen crashed 3 times in a row. Only the home screen goes back; the rest stays. */
@@ -277,7 +287,7 @@ final class HomeMode {
                         fixed.add(pkg);
                     }
                 }
-                if (!reverted && !adb.shell("cmd role get-role-holders --user 0 android.app.role.HOME").contains(PKG)) {
+                if (!reverted && !ourHome(adb)) {
                     adb.shell("cmd package set-home-activity " + HOME_ACTIVITY);
                     fixed.add(Ui.tr("o Início", "the home screen"));
                 }

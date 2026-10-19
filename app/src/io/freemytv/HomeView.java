@@ -112,6 +112,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
 
     // At the top: tabs (0 to 2) and icon-only buttons (3 to 5); the three cards
     private int tab, topIndex, cardIndex;
+    /** The tab's first pick on screen: the three cards are a window over up to Recs.PER_TAB picks. */
+    private int cardPage;
     private List<Recs.Pick> cards = new ArrayList<>();
     private final Spring[] topFocus = new Spring[6];
     private final RectF[] topRects = new RectF[6];
@@ -194,6 +196,10 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private String clockText = "";
     private long clockMinute = -1;
     private boolean okDown, backDown;
+    /** OK held down (long press): the shelf edit menu opens on release. */
+    private boolean okLong;
+    /** Moving a shelf app: ←/→ move it, OK or Back finish. */
+    private boolean moving;
 
     private Paint labelPaint, metaPaint, clockPaint, buttonPaint, capsuleText, tipPaint, quotePaint, staleQuote;
     private Paint rowTitle, drawerLabel, cardTitle, cardText, cardDim, cardDimRight, bigTemp, hourPaint, hourTemp;
@@ -374,7 +380,13 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             pickIndex = 0;
             updatePicks();
         }
-        if (tab != 0) selectTab(0);
+        if (tab != 0) {
+            selectTab(0);
+        } else if (cardPage != 0) {
+            cardPage = 0;
+            updateCards();
+        }
+        moving = false;
         retarget(!animated);
         motionDirty = true;
     }
@@ -997,9 +1009,10 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
 
     private void layoutShelf() {
         int n = shelf.size();
-        float pad = SHELF_PAD * k, gap = TILE_GAP * k, th = L_TILE_H * k;
+        float pad = SHELF_PAD * k, gap = (n > 7 ? 32 : TILE_GAP) * k;
         float full = (CONTENT_R - MARGIN) * k;
         float tw = Math.min(TILE_MAX_W * k, (full - Math.max(0, n - 1) * gap) / Math.max(1, n));
+        float th = Math.min(L_TILE_H * k, tw * 0.6f);   // many apps: the tiles shrink and stay 5:3
         float width = n * tw + Math.max(0, n - 1) * gap, left = (w - width) / 2f;
         float top = L_PLATTER_TOP * k;
         platterRect.set(left - pad, top, left + width + pad, top + th + 2 * pad);
@@ -1102,6 +1115,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         c.drawRoundRect(tmp, r0, r0, shadowDeep);
         c.restore();
         int[] style = TILE_STYLE.get(it.key);
+        // A light tile needs its dark logo (assets/logos, from tools/logos.py); without it, the dark card.
+        if (style != null && style[2] == 2 && it.logoDark == null) style = null;
         if (it.logo != null && style != null) {
             tileFill.setShader(new LinearGradient(0, cell.top, 0, cell.bottom, style[0], style[1], Shader.TileMode.CLAMP));
             c.drawRoundRect(cell, r, r, tileFill);
@@ -1624,6 +1639,75 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         });
     }
 
+    // MARK: - Editing the shelf (long press OK on a shelf app, or on an app in All Apps)
+
+    /** False when the focused thing isn't an app (a long press then works as a normal press). */
+    private boolean editMenu() {
+        final Context c = getContext();
+        final HomeApps.Item it;
+        if (sheetOpen) {
+            if (others.isEmpty()) return false;
+            it = others.get(gridIndex);
+        } else if (zone == Z_SHELF && !shelf.isEmpty()) {
+            it = shelf.get(shelfIndex);
+        } else {
+            return false;
+        }
+        if (it.kind != HomeApps.APP || it.pkg == null) return false;
+        final List<String> pkgs = HomeApps.shelfPackages(c);
+        final int at = pkgs.indexOf(it.pkg);
+        List<String> labels = new ArrayList<>();
+        final List<Runnable> actions = new ArrayList<>();
+        if (at < 0) {
+            labels.add(Ui.tr("Adicionar ao Início", "Add to Home"));
+            actions.add(() -> {
+                if (pkgs.size() >= HomeApps.MAX_SHELF) {
+                    showToast(Ui.tr("O Início já tem " + HomeApps.MAX_SHELF + " apps: tire um primeiro.",
+                            "Home already has " + HomeApps.MAX_SHELF + " apps: remove one first."));
+                    return;
+                }
+                pkgs.add(it.pkg);
+                HomeApps.saveShelf(c, pkgs);
+                closeSheet();
+                shelfIndex = pkgs.size() - 1;
+                reload();
+            });
+        } else {
+            labels.add(Ui.tr("Mover", "Move"));
+            actions.add(() -> {
+                moving = true;
+                showToast(Ui.tr("← → para mover, OK para terminar.", "← → to move it, OK when done."));
+            });
+            labels.add(Ui.tr("Tirar do Início", "Remove from Home"));
+            actions.add(() -> {
+                pkgs.remove(at);
+                HomeApps.saveShelf(c, pkgs);
+                reload();
+            });
+        }
+        labels.add(Ui.tr("Cancelar", "Cancel"));
+        actions.add(() -> {});
+        new android.app.AlertDialog.Builder(activity, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                .setTitle(it.label)
+                .setItems(labels.toArray(new String[0]), (d, which) -> actions.get(which).run())
+                .show();
+        return true;
+    }
+
+    private void moveShelfApp(int dx) {
+        int to = shelfIndex + dx;
+        if (dx == 0 || to < 0 || to >= shelf.size()) return;
+        List<HomeApps.Item> list = new ArrayList<>(shelf);
+        java.util.Collections.swap(list, shelfIndex, to);
+        List<String> pkgs = new ArrayList<>();
+        for (HomeApps.Item i : list) pkgs.add(i.pkg);
+        HomeApps.saveShelf(getContext(), pkgs);
+        shelfIndex = to;
+        setShelf(list);
+        retarget(true);
+        click.move();
+    }
+
     // MARK: - Keys: only the arrows, OK and Back (system keys pass through to the system)
 
     boolean onKey(KeyEvent e) {
@@ -1648,9 +1732,12 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                 // app opens nothing.
                 if (down) {
                     if (e.getRepeatCount() == 0) okDown = true;
+                    else if (okDown && e.getRepeatCount() >= 1) okLong = true;   // held past the key-repeat delay
                 } else {
-                    if (okDown && !e.isCanceled()) activate();
-                    okDown = false;
+                    if (moving) moving = false;
+                    else if (okDown && okLong) { if (!editMenu()) activate(); }
+                    else if (okDown && !e.isCanceled()) activate();
+                    okDown = okLong = false;
                 }
                 return true;
             case KeyEvent.KEYCODE_BACK:
@@ -1667,7 +1754,9 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     }
 
     private void back() {
-        if (sheetOpen) {
+        if (moving) {
+            moving = false;
+        } else if (sheetOpen) {
             closeSheet();
         } else if (zone == Z_DRAWER) {
             closeDrawer();
@@ -1682,6 +1771,10 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     }
 
     private void move(int dx, int dy) {
+        if (moving) {
+            moveShelfApp(dx);
+            return;
+        }
         if (sheetOpen) {
             moveGrid(dx, dy);
             return;
@@ -1811,7 +1904,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             it = lightButtons.get(topIndex - 3);
             r = topRects[topIndex];
         } else if (zone == Z_CARDS) {
-            Recs.Pick p = cardIndex < cards.size() ? cards.get(cardIndex) : null;
+            Recs.Pick p = cardPage + cardIndex < cards.size() ? cards.get(cardPage + cardIndex) : null;
             if (p == null || p.pkg == null) return;
             it = HomeApps.app(p.pkg, Recs.serviceName(p));
             r = cardRects[cardIndex];
@@ -1871,14 +1964,20 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         List<Recs.Pick> list = recs.now(TAB_KIND[tab]);
         if (!samePicks(list, cards)) {
             cards = list;
-            cardIndex = Math.min(cardIndex, Math.max(0, list.size() - 1));
+            cardPage = Math.min(cardPage, Math.max(0, list.size() - 3));
+            cardIndex = Math.min(cardIndex, Math.max(0, list.size() - cardPage - 1));
             if (zone == Z_CARDS && list.isEmpty()) {
                 zone = Z_SHELF;
                 retarget(false);
             }
         }
-        for (Recs.Pick p : recs.wanted()) recs.backdrop(p);   // all three tabs preloaded: switching tabs is instant
-        Backdrop b = cards.isEmpty() ? null : recs.backdrop(cards.get(0));
+        // The three tabs' first cards preloaded (switching tabs is instant); the rest load as → reaches them.
+        for (String kind : TAB_KIND) {
+            List<Recs.Pick> l = recs.now(kind);
+            for (int i = 0; i < Math.min(3, l.size()); i++) recs.backdrop(l.get(i));
+        }
+        for (int i = cardPage; i < Math.min(cardPage + 4, cards.size()); i++) recs.backdrop(cards.get(i));
+        Backdrop b = cards.isEmpty() ? null : recs.backdrop(cards.get(cardPage));
         if (cards.isEmpty() || b != null) showBackdrop(b);
         heroDirty = true;
     }
@@ -1886,6 +1985,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private void selectTab(int index) {
         if (index == tab) return;
         tab = index;
+        cardPage = 0;
         updateCards();
         heroDirty = true;
     }
@@ -1970,7 +2070,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
      */
     private void drawLightCard(Canvas c, int i) {
         RectF base = cardRects[i];
-        Recs.Pick p = i < cards.size() ? cards.get(i) : null;
+        Recs.Pick p = cardPage + i < cards.size() ? cards.get(cardPage + i) : null;
         float v = cardFocus[i].value, f = Ui.clamp(v), s = 1 + 0.05f * v;
         float bw = base.width(), bh = base.height(), r0 = 18 * k;
         float cx = base.centerX(), cy = base.centerY() - 6 * k * v;
@@ -2059,14 +2159,20 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                     topIndex = tab;
                 } else {
                     zone = Z_CARDS;
-                    cardIndex = nearest(cardRects, cards.size(), tileRects[shelfIndex].centerX());
+                    cardIndex = nearest(cardRects, cards.size() - cardPage, tileRects[shelfIndex].centerX());
                 }
                 break;
             case Z_CARDS:
                 if (dx != 0) {
-                    int next = Math.max(0, Math.min(cards.size() - 1, cardIndex + dx));
-                    if (next == cardIndex) return true;
-                    cardIndex = next;
+                    int pick = cardPage + cardIndex + dx;
+                    if (pick < 0 || pick >= cards.size()) return true;
+                    // Past the last card (or before the first) the window slides by one.
+                    if (cardIndex + dx > 2 || cardIndex + dx < 0) {
+                        cardPage += dx;
+                        updateCards();
+                    } else {
+                        cardIndex += dx;
+                    }
                 } else if (dy < 0) {
                     zone = Z_TOP;
                     topIndex = tab;     // as on Apple TV: moving up to the tabs focuses the selected tab
@@ -2086,7 +2192,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                         zone = Z_SHELF;
                     } else {
                         zone = Z_CARDS;
-                        cardIndex = nearest(cardRects, cards.size(), topRects[topIndex].centerX());
+                        cardIndex = nearest(cardRects, cards.size() - cardPage, topRects[topIndex].centerX());
                     }
                 } else {
                     return true;

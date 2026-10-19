@@ -44,6 +44,7 @@ final class Recs {
         int id;
         String kind;            // "movie" or "tv"
         String title, backdrop, meta = "", app, pkg;
+        String link;            // opens the title itself in the app (Stremio), or null = the app's home
         boolean detailed;
     }
 
@@ -53,7 +54,7 @@ final class Recs {
     private static final String IMAGES = "https://image.tmdb.org/t/p/original";
     private static final long LIST_EVERY = 6 * 3600_000L;
     /** Bump when what is saved for each title changes (the saved list is discarded and fetched again). */
-    private static final int CACHE_VERSION = 4;
+    private static final int CACHE_VERSION = 5;
     private static final int MANHA = 0, TARDE = 1, NOITE = 2;
     static final String[] PERIOD_LABEL = {"PARA ESTA MANHÃ", "PARA ESTA TARDE", "PARA ESTA NOITE"};
     static final String[] PERIOD_LABEL_EN = {"THIS MORNING", "THIS AFTERNOON", "TONIGHT"};
@@ -71,6 +72,10 @@ final class Recs {
         {"max", "max", "com.wbd.stream"},
         {"apple tv", "appletv", "com.apple.atve.androidtv.appletv"},
     };
+    /** Which app a pick opens when it's on several: first in this list wins, then the rest in SERVICES order. */
+    private static final List<String> PRIORITY = Arrays.asList("netflix", "disney", "stremio", "prime");
+    /** Stremio has every title (through its add-ons): it opens straight to the title's page, by its IMDb id. */
+    private static final String STREMIO = "com.stremio.one";
     private static final Map<String, String> SERVICE_NAME = new HashMap<>();
     static {
         SERVICE_NAME.put("netflix", "Netflix");
@@ -83,6 +88,7 @@ final class Recs {
         SERVICE_NAME.put("max", "Max");
         SERVICE_NAME.put("appletv", "Apple TV");
         SERVICE_NAME.put("crunchyroll", "Crunchyroll");
+        SERVICE_NAME.put("stremio", "Stremio");
     }
     /** Country for "what streams where" (config.properties "tmdb_region", e.g. US, GB, BR). */
     private static final String REGION = Config.TMDB_REGION.trim().toUpperCase(Locale.ROOT);
@@ -452,7 +458,7 @@ final class Recs {
     /** Genre, runtime (or seasons) and the service it's on, among the ones the TV has. */
     private void fetchDetails(Pick p) throws Exception {
         JSONObject o = get("/" + p.kind + "/" + p.id
-                + "?language=" + lang() + "&append_to_response=watch/providers,images&include_image_language=null,pt,en");
+                + "?language=" + lang() + "&append_to_response=watch/providers,images,external_ids&include_image_language=null,pt,en");
         String best = bestBackdrop(o.optJSONObject("images"));
         if (best != null) p.backdrop = best;
         List<String> parts = new ArrayList<>();
@@ -474,12 +480,20 @@ final class Recs {
         JSONObject wp = o.optJSONObject("watch/providers");
         JSONObject br = wp == null ? null : wp.optJSONObject("results") == null ? null : wp.optJSONObject("results").optJSONObject(REGION);
         JSONArray flat = br == null ? null : br.optJSONArray("flatrate");
-        for (int i = 0; flat != null && i < flat.length() && p.app == null; i++) {
+        p.app = p.pkg = p.link = null;
+        for (int i = 0; flat != null && i < flat.length(); i++) {
             String[] s = service(flat.getJSONObject(i).optString("provider_name"));
-            if (s != null && installed(s[2])) {
+            if (s != null && installed(s[2]) && (p.app == null || rank(s[1]) < rank(p.app))) {
                 p.app = s[1];
                 p.pkg = s[2];
             }
+        }
+        JSONObject ids = o.optJSONObject("external_ids");
+        String imdb = ids == null ? "" : ids.optString("imdb_id", "");
+        if (imdb.startsWith("tt") && installed(STREMIO) && (p.app == null || rank("stremio") < rank(p.app))) {
+            p.app = "stremio";
+            p.pkg = STREMIO;
+            p.link = "stremio:///detail/" + (p.kind.equals("tv") ? "series" : "movie") + "/" + imdb;
         }
         if (p.app != null) parts.add(SERVICE_NAME.get(p.app));
         p.meta = String.join(" · ", parts);
@@ -539,6 +553,11 @@ final class Recs {
             if (first == null) first = s;
         }
         return first;
+    }
+
+    private static int rank(String app) {
+        int i = PRIORITY.indexOf(app);
+        return i >= 0 ? i : PRIORITY.size();
     }
 
     private boolean installed(String pkg) {
@@ -642,6 +661,7 @@ final class Recs {
             for (Pick p : picks) {
                 a.put(new JSONObject().put("id", p.id).put("kind", p.kind).put("title", p.title).put("backdrop", p.backdrop)
                         .put("meta", p.meta).put("app", p.app == null ? "" : p.app).put("pkg", p.pkg == null ? "" : p.pkg)
+                        .put("link", p.link == null ? "" : p.link)
                         .put("detailed", p.detailed));
             }
             cache.edit().putString("picks", a.toString()).putInt("period", period).putLong("listAt", listAt)
@@ -664,6 +684,7 @@ final class Recs {
             p.meta = fixGenres(o.optString("meta"));
             p.app = o.optString("app").isEmpty() ? null : o.optString("app");
             p.pkg = o.optString("pkg").isEmpty() ? null : o.optString("pkg");
+            p.link = o.optString("link").isEmpty() ? null : o.optString("link");
             p.detailed = o.optBoolean("detailed");
             out.add(p);
         }

@@ -64,6 +64,7 @@ final class HomeApps {
         int kind;
         String key, label, pkg, inputId, number;
         String symbol;      // icon for the shortcuts and special cards
+        String link;        // a title inside the app (a recommendation in Stremio), or null
         Bitmap tile;        // 16:9 card (apps and specials)
         Bitmap logo;        // colored logo with no background (shelf); null = use the card
         Bitmap logoDark;    // version for a light background (YouTube's white icon), if any
@@ -317,6 +318,10 @@ final class HomeApps {
         Intent intent;
         switch (it.kind) {
             case APP:
+                if (it.link != null) {
+                    intent = new Intent(Intent.ACTION_VIEW, android.net.Uri.parse(it.link)).setPackage(it.pkg);
+                    break;
+                }
                 intent = launchIntent(a.getPackageManager(), it.pkg);
                 if (intent != null) intent.addFlags(Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED);
                 break;

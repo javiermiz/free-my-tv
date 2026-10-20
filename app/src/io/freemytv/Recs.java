@@ -856,6 +856,74 @@ final class Recs {
         return p == null ? null : image(p.backdrop, "w500");
     }
 
+    private final Map<Bitmap, Float> focus = new java.util.WeakHashMap<>();
+
+    /** Where a picture's subject is, across (0 left … 1 right): a vertical card is cut around it. 0.5 if unknown. */
+    float focus(Bitmap b) {
+        synchronized (focus) {
+            Float x = b == null ? null : focus.get(b);
+            return x == null ? 0.5f : x;
+        }
+    }
+
+    /**
+     * The middle of the 2:3 slice of a wide picture to keep: around the faces (the biggest one when they don't all
+     * fit), else where it has the most detail (the subject is sharp, the background soft), a little toward the middle.
+     */
+    private static float focusOf(Bitmap b) {
+        int w = 320, h = Math.max(2, Math.round(320f * b.getHeight() / b.getWidth())) & ~1;
+        Bitmap small = Bitmap.createScaledBitmap(b, w, h, true);
+        if (small.getConfig() != Bitmap.Config.RGB_565) small = small.copy(Bitmap.Config.RGB_565, false);
+        float slice = h * 2f / 3 / w;   // the vertical card's share of the width
+        try {
+            android.media.FaceDetector.Face[] faces = new android.media.FaceDetector.Face[8];
+            int n = new android.media.FaceDetector(w, h, faces.length).findFaces(small, faces);
+            float lo = 1, hi = 0, big = 0, bigX = 0;
+            android.graphics.PointF mid = new android.graphics.PointF();
+            for (int i = 0; i < n; i++) {
+                if (faces[i].confidence() < 0.4f) continue;
+                faces[i].getMidPoint(mid);
+                float x = mid.x / w, r = faces[i].eyesDistance() / w;
+                lo = Math.min(lo, x - r);
+                hi = Math.max(hi, x + r);
+                if (r > big) {
+                    big = r;
+                    bigX = x;
+                }
+            }
+            if (big > 0) return hi - lo <= slice ? (lo + hi) / 2 : bigX;
+        } catch (Exception ignored) {
+            // no faces: by detail
+        }
+        int[] px = new int[w * h];
+        small.getPixels(px, 0, w, 0, 0, w, h);
+        float[] col = new float[w];
+        for (int y = 1; y < h; y++) {
+            for (int x = 1; x < w; x++) {
+                int a = px[y * w + x], l = px[y * w + x - 1], u = px[(y - 1) * w + x];
+                col[x] += Math.abs(luma(a) - luma(l)) + Math.abs(luma(a) - luma(u));
+            }
+        }
+        int win = Math.max(1, Math.round(slice * w)), bestAt = (w - win) / 2;
+        float best = -1, sum = 0;
+        for (int x = 0; x < w; x++) {
+            sum += col[x];
+            if (x >= win) sum -= col[x - win];
+            if (x < win - 1) continue;
+            int start = x - win + 1;
+            float centered = 1 - 0.3f * Math.abs((start + win / 2f) / w - 0.5f) * 2;   // up to 30% less at the edges
+            if (sum * centered > best) {
+                best = sum * centered;
+                bestAt = start;
+            }
+        }
+        return (bestAt + win / 2f) / w;
+    }
+
+    private static int luma(int c) {
+        return (((c >> 16) & 0xFF) * 3 + ((c >> 8) & 0xFF) * 6 + (c & 0xFF)) / 10;
+    }
+
     /** A TMDB image at a size ("w342" poster, "w780" or "w1280" backdrop), kept on disk; null while it loads. */
     Bitmap image(final String imagePath, final String size) {
         if (imagePath == null) return null;
@@ -888,6 +956,10 @@ final class Recs {
                 o.inPreferredConfig = imagePath.endsWith(".png") ? Bitmap.Config.ARGB_8888 : Bitmap.Config.RGB_565;   // logos: transparent
                 Bitmap b = BitmapFactory.decodeFile(f.getPath(), o);
                 if (b == null) throw new IOException("unreadable image");
+                if (!imagePath.endsWith(".png")) {
+                    float x = focusOf(b);
+                    synchronized (focus) { focus.put(b, x); }
+                }
                 synchronized (thumbs) {
                     thumbs.put(key, b);
                     // ponytail: simple insertion-order cap; an LRU only if rows grow past ~120 images.

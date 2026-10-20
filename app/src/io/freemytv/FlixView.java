@@ -1035,8 +1035,10 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
         }
         float ir = img.getWidth() / (float) img.getHeight(), rr = r.width() / r.height();
         if (ir > rr) {
+            // Narrower than the picture: the slice around its subject.
             int sw = Math.round(img.getHeight() * rr);
-            src.set((img.getWidth() - sw) / 2, 0, (img.getWidth() + sw) / 2, img.getHeight());
+            int left = Math.max(0, Math.min(img.getWidth() - sw, Math.round(recs.focus(img) * img.getWidth() - sw / 2f)));
+            src.set(left, 0, left + sw, img.getHeight());
         } else {
             int sh = Math.round(img.getWidth() / rr);
             src.set(0, (img.getHeight() - sh) / 2, img.getWidth(), (img.getHeight() + sh) / 2);

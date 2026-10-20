@@ -908,7 +908,7 @@ final class Recs {
             String mine = lang().substring(0, 2);
             tag = mine;
             try {
-                found = tmdbVideo(p, mine, TRAILERS, true);
+                found = tmdbVideo(p, mine, "", TRAILERS, true);
                 JSONObject en = null;
                 if (found.isEmpty()) en = get("/" + p.kind + "/" + p.id + "?language=en-US");
                 String enTitle = en == null ? p.title : en.optString(p.kind.equals("tv") ? "name" : "title", p.title);
@@ -927,13 +927,13 @@ final class Recs {
                     }
                 }
                 // No trailer in your language: a clip in it; an anime's opening (a song); last, the trailer without sound.
-                if (found.isEmpty()) found = tmdbVideo(p, mine, CLIPS, true);
+                if (found.isEmpty()) found = tmdbVideo(p, mine, "", CLIPS, true);
                 if (found.isEmpty() && "ja".equals(original) && p.kind.equals("tv")) {
-                    found = tmdbVideo(p, mine, OPENINGS, false);
+                    found = tmdbVideo(p, mine, original, OPENINGS, false);
                     tag = "music";
                 }
                 if (found.isEmpty()) {
-                    found = tmdbVideo(p, mine, TRAILERS, false);
+                    found = tmdbVideo(p, mine, original, TRAILERS, false);
                     tag = "mute";
                 }
             } catch (Exception e) {
@@ -948,7 +948,15 @@ final class Recs {
     }
 
     private SharedPreferences savedTrailers() {
-        return context.getSharedPreferences("trailers4-" + lang(), Context.MODE_PRIVATE);   // 4: clips and openings too
+        SharedPreferences saved = context.getSharedPreferences("trailers4-" + lang(), Context.MODE_PRIVATE);   // 4: clips and openings too
+        if (!saved.getBoolean("v5", false)) {
+            // Once: the muted ones were in any language (a Korean trailer for a Hollywood movie).
+            SharedPreferences.Editor e = saved.edit();
+            for (Map.Entry<String, ?> it : saved.getAll().entrySet())
+                if (String.valueOf(it.getValue()).endsWith("|mute")) e.remove(it.getKey());
+            e.putBoolean("v5", true).apply();
+        }
+        return saved;
     }
 
     /** Spain's Spanish is fine only when the country is Spain (tmdb_region=ES). */
@@ -966,11 +974,12 @@ final class Recs {
 
     /**
      * TMDB's videos of these types (earlier in the list = better), only in your language (`mineOnly`, never Spain's
-     * dub) or in any; a show without any: its first season's. Returns the YouTube id, or "".
+     * dub) or else in the title's own language (English when unknown), not another country's version (a Korean
+     * trailer for a Hollywood movie); a show without any: its first season's. Returns the YouTube id, or "".
      */
-    private String tmdbVideo(Pick p, String mine, List<String> types, boolean mineOnly) throws Exception {
+    private String tmdbVideo(Pick p, String mine, String original, List<String> types, boolean mineOnly) throws Exception {
         String base = "/" + p.kind + "/" + p.id;
-        String langs = mineOnly ? mine : mine + ",en,ja,ko,null";
+        String langs = mineOnly ? mine : mine + "," + (original.isEmpty() ? "en" : original) + ",null";
         for (String where : p.kind.equals("tv") ? new String[] {base, base + "/season/1"} : new String[] {base}) {
             JSONArray v = get(where + "/videos?include_video_language=" + langs).getJSONArray("results");
             String found = "";

@@ -51,6 +51,8 @@ final class Recs {
         double rating;          // TMDB's, 0 = too few votes
         String imdb;            // from the details (not saved): to leave out what you already watched
         boolean resuming;       // Stremio's title in progress (the "Continue watching" card)
+        String services = "";   // the services it's on in your country ("netflix,disney"), for the platform filter
+        boolean anime;          // Japanese animation (the Anime tab)
         boolean detailed;
     }
 
@@ -66,7 +68,7 @@ final class Recs {
     private static final String IMAGES = "https://image.tmdb.org/t/p/original";
     private static final long LIST_EVERY = 6 * 3600_000L;
     /** Bump when what is saved for each title changes (the saved list is discarded and fetched again). */
-    private static final int CACHE_VERSION = 24;
+    private static final int CACHE_VERSION = 25;
     private static final int MANHA = 0, TARDE = 1, NOITE = 2;
     static final String[] PERIOD_LABEL = {"PARA ESTA MANHÃ", "PARA ESTA TARDE", "PARA ESTA NOITE"};
     static final String[] PERIOD_LABEL_EN = {"THIS MORNING", "THIS AFTERNOON", "TONIGHT"};
@@ -83,6 +85,8 @@ final class Recs {
         {"globoplay", "globoplay", "com.globo.globotv"},
         {"max", "max", "com.wbd.stream"},
         {"apple tv", "appletv", "com.apple.atve.androidtv.appletv"},
+        {"viki", "viki", "com.viki.android"},
+        {"viki", "viki", "com.viki.androidtv"},
     };
     /** Which app a pick opens when it's on several: first in this list wins, then the rest in SERVICES order. */
     private static final List<String> PRIORITY = Arrays.asList("stremio", "netflix", "disney", "prime");   // Stremio first: it opens on the episode
@@ -100,6 +104,7 @@ final class Recs {
         SERVICE_NAME.put("max", "Max");
         SERVICE_NAME.put("appletv", "Apple TV");
         SERVICE_NAME.put("crunchyroll", "Crunchyroll");
+        SERVICE_NAME.put("viki", "Viki");
         SERVICE_NAME.put("stremio", "Stremio");
     }
     /** Country for "what streams where" (config.properties "tmdb_region", e.g. US, GB, BR). */
@@ -297,6 +302,7 @@ final class Recs {
         if (o != null) {
             if (o.length() > 0) {
                 p.id = o.optInt("id");
+                p.anime = isAnime(o);
                 p.title = o.optString(series ? "name" : "title");
                 p.backdrop = path(o, "backdrop_path");
                 p.poster = path(o, "poster_path");
@@ -679,6 +685,7 @@ final class Recs {
         alternate(gems, seen, detailed(discover("movie", gem + "&vote_count.gte=300&vote_count.lte=4000")),
                 detailed(discover("tv", gem + "&vote_count.gte=150&vote_count.lte=2500")), ROW_MAX);
         row(out, t("Joyas escondidas", "Hidden gems"), gems);
+        sagas(out);
         // Each big service: what came out this past year and people watch most (not decades-old shows on repeat).
         for (String app : new String[] {"netflix", "disney", "prime"}) {
             StringBuilder ids = new StringBuilder();
@@ -697,11 +704,49 @@ final class Recs {
             for (Pick p : mixed) {
                 p.app = app;
                 p.pkg = pkg;
+                p.services = app;
                 p.detailed = true;
             }
             row(out, t("Lo nuevo en ", "New on ") + SERVICE_NAME.get(app), mixed);
         }
         return out;
+    }
+
+    /** Sagas: TMDB collections (and the Marvel films by their keyword), each a row in release order. */
+    private static final String[][] SAGAS = {
+        {"Universo Cinematográfico de Marvel", "Marvel Cinematic Universe", "keyword", "180547"},
+        {"Star Wars", "Star Wars", "collection", "10"},
+        {"Harry Potter", "Harry Potter", "collection", "1241"},
+        {"El Señor de los Anillos y El Hobbit", "The Lord of the Rings and The Hobbit", "collection", "119,121938"},
+        {"Rápido y Furioso", "Fast & Furious", "collection", "9485"},
+        {"John Wick", "John Wick", "collection", "404609"},
+        {"Jurassic Park", "Jurassic Park", "collection", "328"},
+    };
+
+    private void sagas(List<Row> out) {
+        for (String[] s : SAGAS) {
+            try {
+                List<Pick> films = new ArrayList<>();
+                if (s[2].equals("keyword")) {
+                    films = discover("movie", "&with_keywords=" + s[3] + "&vote_count.gte=1000&sort_by=primary_release_date.asc");
+                } else {
+                    List<JSONObject> parts = new ArrayList<>();
+                    for (String id : s[3].split(",")) {
+                        JSONArray a = get("/collection/" + id + "?language=" + lang()).optJSONArray("parts");
+                        for (int i = 0; a != null && i < a.length(); i++) {
+                            JSONObject o = a.getJSONObject(i);
+                            String date = o.optString("release_date", "");
+                            if (!date.isEmpty() && date.compareTo(day(0)) <= 0) parts.add(o);
+                        }
+                    }
+                    java.util.Collections.sort(parts, (a, b) -> a.optString("release_date").compareTo(b.optString("release_date")));
+                    for (JSONObject o : parts) add(films, o, "movie");
+                }
+                row(out, t(s[0], s[1]), detailed(films));
+            } catch (Exception e) {
+                AppLog.w("saga " + s[1] + ": " + e.getMessage());
+            }
+        }
     }
 
     /** A row of shows from TMDB's discover (popular first), each opening in the app that has it. */
@@ -1273,13 +1318,17 @@ final class Recs {
         JSONObject br = wp == null ? null : wp.optJSONObject("results") == null ? null : wp.optJSONObject("results").optJSONObject(REGION);
         JSONArray flat = br == null ? null : br.optJSONArray("flatrate");
         p.app = p.pkg = p.link = null;
+        p.anime = isAnime(o);
+        StringBuilder on = new StringBuilder();
         for (int i = 0; flat != null && i < flat.length(); i++) {
             String[] s = service(flat.getJSONObject(i).optString("provider_name"));
+            if (s != null && !("," + on + ",").contains("," + s[1] + ",")) on.append(on.length() == 0 ? "" : ",").append(s[1]);
             if (s != null && installed(s[2]) && (p.app == null || rank(s[1]) < rank(p.app))) {
                 p.app = s[1];
                 p.pkg = s[2];
             }
         }
+        p.services = on.toString();
         JSONObject ids = o.optJSONObject("external_ids");
         String imdb = ids == null ? "" : ids.optString("imdb_id", "");
         p.imdb = imdb.startsWith("tt") ? imdb : null;
@@ -1416,6 +1465,16 @@ final class Recs {
     }
 
     /** The service's row, preferring the one whose app is installed (one service can have several apps). */
+    /** Japanese animation: TMDB's Animation genre (16) in Japanese (details' "genres" or a search result's "genre_ids"). */
+    static boolean isAnime(JSONObject o) {
+        if (!"ja".equals(o.optString("original_language"))) return false;
+        JSONArray g = o.optJSONArray("genres");
+        for (int i = 0; g != null && i < g.length(); i++) if (g.optJSONObject(i) != null && g.optJSONObject(i).optInt("id") == 16) return true;
+        JSONArray ids = o.optJSONArray("genre_ids");
+        for (int i = 0; ids != null && i < ids.length(); i++) if (ids.optInt(i) == 16) return true;
+        return false;
+    }
+
     private String[] service(String name) {
         String n = name.toLowerCase(Locale.ROOT);
         String[] first = null;
@@ -1542,7 +1601,8 @@ final class Recs {
         return new JSONObject().put("id", p.id).put("kind", p.kind).put("title", p.title).put("backdrop", p.backdrop)
                 .put("meta", p.meta).put("app", p.app == null ? "" : p.app).put("pkg", p.pkg == null ? "" : p.pkg)
                 .put("link", p.link == null ? "" : p.link).put("detailed", p.detailed)
-                .put("poster", p.poster == null ? "" : p.poster).put("logo", p.logo == null ? "" : p.logo).put("logoMine", p.logoMine).put("year", p.year).put("rating", p.rating).put("overview", p.overview == null ? "" : p.overview);
+                .put("poster", p.poster == null ? "" : p.poster).put("logo", p.logo == null ? "" : p.logo).put("logoMine", p.logoMine).put("year", p.year).put("rating", p.rating).put("overview", p.overview == null ? "" : p.overview)
+                .put("services", p.services == null ? "" : p.services).put("anime", p.anime);
     }
 
     private static List<Pick> parse(JSONArray a) {
@@ -1566,6 +1626,8 @@ final class Recs {
             p.rating = o.optDouble("rating", 0);
             p.overview = o.optString("overview");
             p.detailed = o.optBoolean("detailed");
+            p.services = o.optString("services");
+            p.anime = o.optBoolean("anime");
             out.add(p);
         }
         return out;

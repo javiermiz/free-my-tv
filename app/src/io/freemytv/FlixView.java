@@ -250,6 +250,7 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
             Row r = row(out, es("Continuar viendo", "Continue watching"));
             r.cards.add(card(resume));
         }
+        if (tab == 0) appRow(out, es("Tus apps", "Your apps"), shelf).shelf = true;   // near the top: picking an app is quick
         List<Recs.Pick> mine = new ArrayList<>();
         for (Recs.Pick p : recs.now(kind)) if (!p.resuming && p.pkg != null) mine.add(p);
         featuredList.clear();
@@ -263,12 +264,11 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
         }
         for (Recs.Row rr : recs.rows()) {
             Row r = new Row();
-            r.title = rr.title.replace("Trending on ", es("Tendencias en ", "Trending on "));
+            r.title = rr.title;
             for (Recs.Pick p : rr.picks) if (kind == null || kind.equals(p.kind)) r.cards.add(card(p));
             if (!r.cards.isEmpty()) out.add(r);
         }
         if (tab == 0) {
-            appRow(out, es("Tus apps", "Your apps"), shelf).shelf = true;
             appRow(out, es("Más apps", "More apps"), others).others = true;
             appRow(out, es("Entradas y ajustes", "Inputs and settings"), extras);
         }

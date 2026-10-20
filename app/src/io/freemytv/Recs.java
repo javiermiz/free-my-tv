@@ -62,7 +62,7 @@ final class Recs {
     private static final String IMAGES = "https://image.tmdb.org/t/p/original";
     private static final long LIST_EVERY = 6 * 3600_000L;
     /** Bump when what is saved for each title changes (the saved list is discarded and fetched again). */
-    private static final int CACHE_VERSION = 12;
+    private static final int CACHE_VERSION = 13;
     private static final int MANHA = 0, TARDE = 1, NOITE = 2;
     static final String[] PERIOD_LABEL = {"PARA ESTA MANHÃ", "PARA ESTA TARDE", "PARA ESTA NOITE"};
     static final String[] PERIOD_LABEL_EN = {"THIS MORNING", "THIS AFTERNOON", "TONIGHT"};
@@ -626,8 +626,18 @@ final class Recs {
      */
     private List<Row> fetchRows(Map<Integer, String[]> services) throws Exception {
         List<Row> out = new ArrayList<>();
-        row(out, "K-dramas", detailed(discover("tv", "&with_original_language=ko&with_genres=18&vote_count.gte=50")));
-        row(out, "Anime", detailed(discover("tv", "&with_original_language=ja&with_genres=16&without_genres=10762,10751&vote_count.gte=50")));
+        java.util.Set<String> seen = new java.util.HashSet<>();   // each title in one row only
+        String ko = "&with_original_language=ko&without_genres=10762,10751,10764,10767&vote_count.gte=30";
+        String ja = "&with_original_language=ja&with_genres=16&without_genres=10762,10751&vote_count.gte=30";
+        category(out, seen, t("K-dramas de romance", "Romance K-dramas"), ko + "&with_keywords=9840");
+        category(out, seen, t("K-dramas de comedia romántica", "Romantic comedy K-dramas"), ko + "&with_genres=35&with_keywords=9840");
+        category(out, seen, t("K-dramas de suspenso y crimen", "Thriller and crime K-dramas"), ko + "&with_genres=80|9648");
+        category(out, seen, t("K-dramas de fantasía", "Fantasy K-dramas"), ko + "&with_genres=10765");
+        category(out, seen, t("Anime de acción", "Action anime"), ja + ",10759");
+        category(out, seen, t("Anime isekai", "Isekai anime"), ja + "&with_keywords=237451");
+        category(out, seen, t("Anime de romance", "Romance anime"), ja + "&with_keywords=9840");
+        category(out, seen, t("Anime de la vida cotidiana", "Slice of life anime"), ja + "&with_keywords=9914");
+        // Each big service: what came out this past year and people watch most (not decades-old shows on repeat).
         for (String app : new String[] {"netflix", "disney", "prime"}) {
             StringBuilder ids = new StringBuilder();
             String pkg = null;
@@ -637,17 +647,31 @@ final class Recs {
                 pkg = e.getValue()[2];
             }
             if (pkg == null) continue;
-            String with = "&with_watch_monetization_types=flatrate&with_watch_providers=" + URLEncoder.encode(ids.toString(), "UTF-8");
+            String with = "&with_watch_monetization_types=flatrate&vote_count.gte=40&with_watch_providers="
+                    + URLEncoder.encode(ids.toString(), "UTF-8");
             List<Pick> mixed = new ArrayList<>();
-            alternate(mixed, new java.util.HashSet<>(), discover("tv", with), discover("movie", with), 16);
+            alternate(mixed, seen, discover("tv", with + "&first_air_date.gte=" + day(-365)),
+                    discover("movie", with + "&primary_release_date.gte=" + day(-365)), 16);
             for (Pick p : mixed) {
                 p.app = app;
                 p.pkg = pkg;
                 p.detailed = true;
             }
-            row(out, Ui.tr("Em alta no ", "Trending on ") + SERVICE_NAME.get(app), mixed);
+            row(out, t("Lo nuevo en ", "New on ") + SERVICE_NAME.get(app), mixed);
         }
         return out;
+    }
+
+    /** A row of shows from TMDB's discover (popular first), each opening in the app that has it. */
+    private void category(List<Row> out, java.util.Set<String> seen, String title, String filters) throws Exception {
+        List<Pick> fresh = new ArrayList<>();
+        for (Pick p : discover("tv", filters)) if (seen.add(key(p))) fresh.add(p);
+        row(out, title, detailed(fresh));
+    }
+
+    /** Spanish when TMDB's language is Spanish, else English (row titles). */
+    private static String t(String spanish, String english) {
+        return lang().startsWith("es") ? spanish : english;
     }
 
     /**
@@ -714,7 +738,7 @@ final class Recs {
     private List<Pick> detailed(List<Pick> list) {
         List<Pick> out = new ArrayList<>();
         for (Pick p : list) {
-            if (out.size() >= 16) break;
+            if (out.size() >= 14) break;
             try {
                 fetchDetails(p);
             } catch (Exception e) {
@@ -909,14 +933,20 @@ final class Recs {
         for (int i = 0; i < items.length(); i++) {
             JSONObject it = items.getJSONObject(i);
             String id = it.optJSONObject("id") == null ? "" : it.getJSONObject("id").optString("videoId");
-            String t = plain(it.optJSONObject("snippet") == null ? "" : it.getJSONObject("snippet").optString("title"));
+            String raw = it.optJSONObject("snippet") == null ? "" : it.getJSONObject("snippet").optString("title");
+            String t = plain(raw);
             if (id.isEmpty() || !t.contains(want.length() > 24 ? want.substring(0, 24) : want)) continue;
             if (!(t.contains("trailer") || t.contains("teaser") || t.contains("avance"))) continue;
-            if (t.matches(".*(reaccion|reaction|review|resena|explicad|fan ?made|concept|parodia).*")) continue;
+            // Fan-made "season 2" trailers, fan dubs, reviews and reactions aren't the trailer.
+            if (t.matches(".*\\b(reaccion|reaction|review|resena|explicad[oa]|fan|fandub|concept|parodia|edit)\\b.*")) continue;
+            // Spanish for real: "Tráiler" with its accent, "oficial", or dubbed / Latin American / Castilian.
+            boolean dubbed = t.matches(".*\\b(latino|espanol|doblad[oa]|castellano)\\b.*");
+            boolean spanish = dubbed || raw.toLowerCase(Locale.ROOT).contains("tráiler") || t.matches(".*\\boficial\\b.*");
+            if (es && !spanish) continue;
             int score = 1;
-            if (es && t.matches(".*(latino|espanol|doblad|castellano).*")) score += 3;
+            if (dubbed) score += 2;
+            if (t.matches(".*\\b(oficial|official)\\b.*")) score += 1;
             if (t.contains("subtitulad") || t.contains("sub esp")) score -= 2;   // the audio is still English
-            if (t.contains("oficial") || t.contains("official")) score += 1;
             if (score > bestScore) {
                 bestScore = score;
                 best = id;

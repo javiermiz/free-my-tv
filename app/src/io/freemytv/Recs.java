@@ -877,7 +877,12 @@ final class Recs {
     }
 
     private SharedPreferences savedTrailers() {
-        return context.getSharedPreferences("trailers-" + lang(), Context.MODE_PRIVATE);
+        return context.getSharedPreferences("trailers2-" + lang(), Context.MODE_PRIVATE);   // 2: no Spain dubs
+    }
+
+    /** Spain's Spanish is fine only when the country is Spain (tmdb_region=ES). */
+    private static boolean spainOk() {
+        return "ES".equals(REGION);
     }
 
     /**
@@ -895,6 +900,7 @@ final class Recs {
                 String type = o.optString("type");
                 if (!"YouTube".equals(o.optString("site")) || !("Trailer".equals(type) || "Teaser".equals(type))) continue;
                 if (!mine.equals(o.optString("iso_639_1"))) continue;
+                if (mine.equals("es") && !spainOk() && "ES".equals(o.optString("iso_3166_1"))) continue;   // Spain's dub
                 int score = ("Trailer".equals(type) ? 2 : 0) + (REGION.equals(o.optString("iso_3166_1")) ? 1 : 0)
                         + (o.optBoolean("official") ? 1 : 0);
                 if (score > best) {
@@ -934,6 +940,7 @@ final class Recs {
             JSONObject it = items.getJSONObject(i);
             String id = it.optJSONObject("id") == null ? "" : it.getJSONObject("id").optString("videoId");
             String raw = it.optJSONObject("snippet") == null ? "" : it.getJSONObject("snippet").optString("title");
+            String channel = plain(it.optJSONObject("snippet") == null ? "" : it.getJSONObject("snippet").optString("channelTitle"));
             String t = plain(raw);
             if (id.isEmpty() || !t.contains(want.length() > 24 ? want.substring(0, 24) : want)) continue;
             if (!(t.contains("trailer") || t.contains("teaser") || t.contains("avance"))) continue;
@@ -943,7 +950,12 @@ final class Recs {
             boolean dubbed = t.matches(".*\\b(latino|espanol|doblad[oa]|castellano)\\b.*");
             boolean spanish = dubbed || raw.toLowerCase(Locale.ROOT).contains("tráiler") || t.matches(".*\\boficial\\b.*");
             if (es && !spanish) continue;
+            // Latin American Spanish, not Spain's: Spain's channels and "castellano" are out, Latin American ones first.
+            boolean spain = (t + " " + channel).matches(".*\\b(castellano|espana)\\b.*");
+            if (es && spain && !spainOk()) continue;
+            boolean latam = (t + " " + channel).matches(".*\\b(latino|latinoamerica|latam|mexico|hispanoamerica)\\b.*");
             int score = 1;
+            if (latam) score += 3;
             if (dubbed) score += 2;
             if (t.matches(".*\\b(oficial|official)\\b.*")) score += 1;
             if (t.contains("subtitulad") || t.contains("sub esp")) score -= 2;   // the audio is still English

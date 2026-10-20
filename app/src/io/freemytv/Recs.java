@@ -773,26 +773,18 @@ final class Recs {
     }
 
     /**
-     * A show's seasons (season -1) or one season's episodes from TMDB, as {number, name}; `done` gets null if it
-     * couldn't (on a background thread).
+     * A show's seasons (season -1; TMDB's season objects, without specials) or one season's episodes (name,
+     * episode_number, still_path, overview, runtime, air_date); `done` gets null if it couldn't (on a background thread).
      */
-    void episodes(final Pick p, final int season, final java.util.function.Consumer<List<String[]>> done) {
+    void episodes(final Pick p, final int season, final java.util.function.Consumer<List<JSONObject>> done) {
         trailerIo.execute(() -> {
             try {
-                List<String[]> out = new ArrayList<>();
-                if (season < 0) {
-                    JSONArray a = get("/tv/" + p.id + "?language=" + lang()).getJSONArray("seasons");
-                    for (int i = 0; i < a.length(); i++) {
-                        JSONObject o = a.getJSONObject(i);
-                        if (o.optInt("season_number") > 0 && o.optInt("episode_count") > 0)
-                            out.add(new String[] {String.valueOf(o.optInt("season_number")), o.optString("name")});
-                    }
-                } else {
-                    JSONArray a = get("/tv/" + p.id + "/season/" + season + "?language=" + lang()).getJSONArray("episodes");
-                    for (int i = 0; i < a.length(); i++) {
-                        JSONObject o = a.getJSONObject(i);
-                        out.add(new String[] {String.valueOf(o.optInt("episode_number")), o.optString("name")});
-                    }
+                List<JSONObject> out = new ArrayList<>();
+                JSONArray a = season < 0 ? get("/tv/" + p.id + "?language=" + lang()).getJSONArray("seasons")
+                        : get("/tv/" + p.id + "/season/" + season + "?language=" + lang()).getJSONArray("episodes");
+                for (int i = 0; i < a.length(); i++) {
+                    JSONObject o = a.getJSONObject(i);
+                    if (season >= 0 || (o.optInt("season_number") > 0 && o.optInt("episode_count") > 0)) out.add(o);
                 }
                 done.accept(out);
             } catch (Exception e) {

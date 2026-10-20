@@ -102,7 +102,7 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
     /** The featured title changes by itself while it has focus and no trailer is playing. */
     private final Runnable rotate = new Runnable() {
         @Override public void run() {
-            if (running && focusRow == -1 && !trailerOn) nextFeatured(1);
+            if (running && focusRow == -1 && !trailerOn && detail == null) nextFeatured(1);
             handler.postDelayed(this, ROTATE_EVERY);
         }
     };
@@ -110,7 +110,7 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
     private final Paint fill = new Paint(Paint.ANTI_ALIAS_FLAG), bitmapPaint = new Paint(Paint.FILTER_BITMAP_FLAG);
     private final Paint ring = new Paint(Paint.ANTI_ALIAS_FLAG);
     private Paint navOn, navOff, navFocus, rowTitle, rowPeek, cardTitle, wideTitle, kindLabel, badge, weatherText, button, peekTitle;
-    private TextPaint meta, overview, billTitle, billMeta, billOverview, nameUnder;
+    private TextPaint meta, overview, billTitle, billMeta, billOverview, nameUnder, pill;
     private final RectF r1 = new RectF(), r2 = new RectF(), logoRect = new RectF();
     private final Paint whiteLogo = new Paint(Paint.FILTER_BITMAP_FLAG);
     {
@@ -207,6 +207,7 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
     /** Home pressed while on the home screen: back to the featured title, on the first tab. */
     void reset() {
         moving = false;
+        detail = null;
         focusRow = -1;
         if (tab != 0) {
             tab = 0;
@@ -360,6 +361,10 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
                 return true;
             case KeyEvent.KEYCODE_BACK:
                 if (!down) return true;
+                if (detail != null) {
+                    closeDetail();
+                    return true;
+                }
                 if (moving) moving = false;
                 else if (focusRow >= 0 || focusRow == -2) focusRow = -1;
                 else if (tab != 0) selectTab(0);
@@ -372,6 +377,10 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
     }
 
     private void move(int dx, int dy) {
+        if (detail != null) {
+            detailMove(dx, dy);
+            return;
+        }
         if (moving && focusRow >= 0 && rows.get(focusRow).shelf) {
             moveShelfApp(dx);
             return;
@@ -484,6 +493,10 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
     }
 
     private void activate() {
+        if (detail != null) {
+            detailActivate();
+            return;
+        }
         HomeApps.Item it;
         RectF r = focusRow >= 0 ? wideCardRect(new RectF()) : billboardRect(new RectF());
         if (focusRow == -2) {
@@ -517,42 +530,234 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
             Toast.makeText(activity, es("No se pudo abrir ", "Couldn't open ") + it.label, Toast.LENGTH_SHORT).show();
     }
 
-    /** A show in Stremio: choose the season and episode here, and Stremio opens right on that episode. */
+    // MARK: - A show's page: its seasons and episodes, Stremio opens right on the one you choose
+
+    private static final float EP_W = 420, EP_H = 236, EP_X = 96, EP_TOP = 652, PILL_Y = 556, PILL_H = 56;
+
+    /** The open show page (null = the home screen). */
+    private static final class Detail {
+        Recs.Pick pick;
+        String imdb;
+        HomeApps.Item app;
+        List<org.json.JSONObject> seasons, episodes;
+        int season, episode;     // index in seasons / episodes
+        int row = 1;             // 0 seasons, 1 episodes
+        int wantEpisode = -1;    // the episode number to land on once its season loads (yours in progress)
+        float alpha, slide;      // fade in; episodes sliding into place
+        String today = new java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(new java.util.Date());
+
+        boolean upcoming(org.json.JSONObject e) {
+            String date = e.optString("air_date", "");
+            return date.isEmpty() || "null".equals(date) || date.compareTo(today) > 0;
+        }
+    }
+
+    private Detail detail;
+    private android.animation.ValueAnimator detailAnim, epAnim;
+
+    /** A show in Stremio: its page opens here (fading in over the home screen). */
     private boolean pickEpisode(final Recs.Pick p, final HomeApps.Item it, final RectF r) {
         final String prefix = "stremio:///detail/series/";
         if (p.resuming || p.id == 0 || p.link == null || !p.link.startsWith(prefix)) return false;
-        final String imdb = p.link.substring(prefix.length()).split("/")[0];
-        final RectF at = new RectF(r);
+        final Detail d = new Detail();
+        d.pick = p;
+        d.imdb = p.link.substring(prefix.length()).split("/")[0];
+        d.app = it;
+        // Yours in progress on Stremio: land on that season and episode ("tt…:2:5").
+        int wantSeason = -1;
+        for (Recs.Pick going : recs.resumes()) {
+            String[] v = going.link == null ? new String[0] : going.link.split(":");
+            if (going.link != null && going.link.contains("/" + d.imdb + "/") && v.length >= 3) {
+                try {
+                    wantSeason = Integer.parseInt(v[v.length - 2]);
+                    d.wantEpisode = Integer.parseInt(v[v.length - 1]);
+                } catch (NumberFormatException ignored) {
+                    // a movie's id: no episode
+                }
+            }
+        }
+        detail = d;
+        stopTrailer();
+        click.open();
+        if (detailAnim != null) detailAnim.cancel();
+        detailAnim = android.animation.ValueAnimator.ofFloat(0, 1);
+        detailAnim.setDuration(240);
+        detailAnim.setInterpolator(EASE);
+        detailAnim.addUpdateListener(v -> {
+            d.alpha = (float) v.getAnimatedValue();
+            screen.invalidate();
+        });
+        detailAnim.start();
+        final int want = wantSeason;
         recs.episodes(p, -1, seasons -> handler.post(() -> {
-            if (seasons == null || seasons.isEmpty()) launch(it, at);
-            else if (seasons.size() == 1) pickEpisodeIn(p, imdb, seasons.get(0)[0], it, at);
-            else choose(p.title, seasons, s -> pickEpisodeIn(p, imdb, s[0], it, at));
+            if (detail != d) return;
+            if (seasons == null || seasons.isEmpty()) {
+                closeDetail();
+                launch(it, r);
+                return;
+            }
+            d.seasons = seasons;
+            for (int i = 0; i < seasons.size(); i++) if (seasons.get(i).optInt("season_number") == want) d.season = i;
+            loadSeason(d);
         }));
         return true;
     }
 
-    private void pickEpisodeIn(final Recs.Pick p, final String imdb, final String season, final HomeApps.Item it, final RectF at) {
-        recs.episodes(p, Integer.parseInt(season), eps -> handler.post(() -> {
-            if (eps == null || eps.isEmpty()) {
-                launch(it, at);
-                return;
-            }
-            for (String[] e : eps) e[1] = e[0] + ". " + e[1];
-            choose(p.title + " · " + es("Temporada ", "Season ") + season, eps, e -> {
-                it.link = "stremio:///detail/series/" + imdb + "/" + imdb + ":" + season + ":" + e[0];
-                launch(it, at);
-            });
+    private void loadSeason(final Detail d) {
+        final int number = d.seasons.get(d.season).optInt("season_number");
+        d.episodes = null;
+        screen.invalidate();
+        recs.episodes(d.pick, number, eps -> handler.post(() -> {
+            if (detail != d || d.seasons.get(d.season).optInt("season_number") != number) return;
+            d.episodes = eps == null ? new ArrayList<>() : eps;
+            d.episode = 0;
+            for (int i = 0; i < d.episodes.size(); i++) if (d.episodes.get(i).optInt("episode_number") == d.wantEpisode) d.episode = i;
+            d.wantEpisode = -1;
+            screen.invalidate();
         }));
     }
 
-    /** A list to pick from ({value, label} rows). */
-    private void choose(String title, final List<String[]> items, final java.util.function.Consumer<String[]> chosen) {
-        String[] labels = new String[items.size()];
-        for (int i = 0; i < labels.length; i++) labels[i] = items.get(i)[1];
-        new android.app.AlertDialog.Builder(activity, android.R.style.Theme_DeviceDefault_Dialog_Alert)
-                .setTitle(title)
-                .setItems(labels, (d, which) -> chosen.accept(items.get(which)))
-                .show();
+    private void closeDetail() {
+        detail = null;
+        screen.invalidate();
+        scheduleTrailer();
+    }
+
+    private void detailMove(int dx, int dy) {
+        final Detail d = detail;
+        if (dy > 0 && d.row == 0 && d.episodes != null && !d.episodes.isEmpty()) d.row = 1;
+        else if (dy < 0 && d.row == 1 && d.seasons != null) d.row = 0;
+        else if (dx != 0 && d.row == 0 && d.seasons != null) {
+            int next = Math.max(0, Math.min(d.seasons.size() - 1, d.season + dx));
+            if (next == d.season) return;
+            d.season = next;
+            loadSeason(d);
+        } else if (dx != 0 && d.row == 1 && d.episodes != null) {
+            int next = Math.max(0, Math.min(d.episodes.size() - 1, d.episode + dx));
+            if (next == d.episode) return;
+            d.episode = next;
+            if (epAnim != null) epAnim.cancel();
+            final float from = dx * (EP_W + GAP);
+            epAnim = android.animation.ValueAnimator.ofFloat(1, 0);
+            epAnim.setDuration(220);
+            epAnim.setInterpolator(EASE);
+            epAnim.addUpdateListener(v -> {
+                d.slide = from * (float) v.getAnimatedValue();
+                screen.invalidate();
+            });
+            epAnim.start();
+        } else {
+            return;
+        }
+        click.move();
+        screen.invalidate();
+    }
+
+    private void detailActivate() {
+        Detail d = detail;
+        if (d.row == 0) {
+            if (d.episodes != null && !d.episodes.isEmpty()) d.row = 1;
+            screen.invalidate();
+            return;
+        }
+        if (d.episodes == null || d.episodes.isEmpty()) return;
+        int season = d.seasons.get(d.season).optInt("season_number"), ep = d.episodes.get(d.episode).optInt("episode_number");
+        d.app.link = "stremio:///detail/series/" + d.imdb + "/" + d.imdb + ":" + season + ":" + ep;
+        RectF r = new RectF(EP_X * k, EP_TOP * k, (EP_X + EP_W) * k, (EP_TOP + EP_H) * k);
+        launch(d.app, r);
+    }
+
+    private void drawDetail(Canvas c) {
+        Detail d = detail;
+        Recs.Pick p = d.pick;
+        int layer = d.alpha < 1 ? c.saveLayerAlpha(0, 0, w, h, Math.round(d.alpha * 255)) : -1;
+        c.drawColor(0xFF000000);
+        r1.set(0, 0, w, h);
+        drawCover(c, recs.image(p.backdrop, "w1280"), r1, 0, 0xFF111114);
+        fill.setShader(new LinearGradient(0, 0, w * 0.72f, 0, 0xF2000000, 0x00000000, Shader.TileMode.CLAMP));
+        c.drawRect(0, 0, w, h, fill);
+        fill.setShader(new LinearGradient(0, h * 0.42f, 0, h, 0x00000000, 0xF5000000, Shader.TileMode.CLAMP));
+        c.drawRect(0, 0, w, h, fill);
+        fill.setShader(null);
+        // Header: label, logo (or name), name in your language, info, overview.
+        float x = EP_X * k, y = 352 * k;
+        float logoTop = drawLogo(c, p, x, y, 620 * k, 170 * k, false);
+        if (Float.isNaN(logoTop)) logoTop = drawBlockUp(c, p.title, billTitle, x, y, 1000 * k, 2);
+        fill.setColor(ACCENT);
+        c.drawRect(x, logoTop - 38 * k, x + 6 * k, logoTop - 16 * k, fill);
+        c.drawText(es("SERIE", "SERIES"), x + 18 * k, logoTop - 18 * k, kindLabel);
+        float ty = y + 16 * k;
+        if (namedApart(p)) ty = drawBlockDown(c, p.title, nameUnder, x, ty, 1000 * k, 1) + 6 * k;
+        ty = drawBlockDown(c, info(p), billMeta, x, ty, 1000 * k, 1) + 10 * k;
+        drawBlockDown(c, p.overview, billOverview, x, ty, 860 * k, 2);
+        // Seasons.
+        if (d.seasons == null) {
+            c.drawText(es("Cargando…", "Loading…"), x, (PILL_Y + 36) * k, meta);
+        } else {
+            float px = x;
+            int first = Math.max(0, Math.min(d.season - 5, d.seasons.size() - 7));
+            for (int i = first; i < d.seasons.size() && px < w; i++) {
+                String name = d.seasons.get(i).optString("name");
+                String label = name.isEmpty() ? es("Temporada ", "Season ") + d.seasons.get(i).optInt("season_number") : name;
+                boolean focused = d.row == 0 && i == d.season, chosen = i == d.season;
+                float tw = pill.measureText(label), pw = tw + 48 * k;
+                r2.set(px, PILL_Y * k, px + pw, (PILL_Y + PILL_H) * k);
+                if (focused || chosen) {
+                    fill.setColor(focused ? 0xFFFFFFFF : 0x33FFFFFF);
+                    c.drawRoundRect(r2, r2.height() / 2, r2.height() / 2, fill);
+                }
+                pill.setColor(focused ? 0xFF000000 : chosen ? 0xFFFFFFFF : 0xFFA1A1AA);
+                c.drawText(label, px + 24 * k, r2.centerY() + Ui.halfCap(pill), pill);
+                px += pw + 12 * k;
+            }
+        }
+        // Episodes: the chosen one first, the one before peeking in at the left.
+        if (d.episodes != null) {
+            float ex = (EP_X + d.slide) * k, top = EP_TOP * k;
+            for (int i = Math.max(0, d.episode - 1); i < d.episodes.size(); i++) {
+                float left = ex + (i - d.episode) * (EP_W + GAP) * k;
+                if (left > w) break;
+                r1.set(left, top, left + EP_W * k, top + EP_H * k);
+                drawEpisode(c, d, d.episodes.get(i), r1, d.row == 1 && i == d.episode);
+            }
+            if (!d.episodes.isEmpty()) {
+                org.json.JSONObject e = d.episodes.get(d.episode);
+                float by = top + EP_H * k + 34 * k;
+                StringBuilder line = new StringBuilder(es("T", "S") + d.seasons.get(d.season).optInt("season_number") + " · E" + e.optInt("episode_number"));
+                if (e.optInt("runtime") > 0) line.append(" · ").append(e.optInt("runtime")).append(" min");
+                String date = e.optString("air_date", "");
+                if (date.length() >= 4) line.append(" · ").append(date.substring(0, 4));
+                by = drawBlockDown(c, e.optString("name") + "   " + line, meta, x, by, 1500 * k, 1) + 8 * k;
+                drawBlockDown(c, e.optString("overview"), overview, x, by, 1300 * k, 2);
+            } else {
+                c.drawText(es("Sin capítulos todavía", "No episodes yet"), x, top + 40 * k, meta);
+            }
+        }
+        if (layer >= 0) c.restoreToCount(layer);
+    }
+
+    /** An episode's card: its still (the show's picture when it has none), dimmed with "Coming soon" if not out yet. */
+    private void drawEpisode(Canvas c, Detail d, org.json.JSONObject e, RectF r, boolean on) {
+        float rad = 12 * k;
+        String still = e.optString("still_path", "");
+        boolean none = still.isEmpty() || "null".equals(still), soon = d.upcoming(e);
+        drawCover(c, none ? recs.image(d.pick.backdrop, "w780") : recs.image(still, "w300"), r, rad, 0xFF26262A);
+        fill.setShader(new LinearGradient(0, r.bottom - r.height() * 0.55f, 0, r.bottom, 0x00000000, 0xD8000000, Shader.TileMode.CLAMP));
+        c.drawRoundRect(r, rad, rad, fill);
+        fill.setShader(null);
+        if (soon || none) {
+            fill.setColor(soon ? 0x99000000 : 0x55000000);
+            c.drawRoundRect(r, rad, rad, fill);
+        }
+        if (soon) {
+            String date = e.optString("air_date", "");
+            drawBadge(c, es("Próximamente", "Coming soon") + (date.length() >= 10 ? " · " + date.substring(8, 10) + "/" + date.substring(5, 7) : ""),
+                    r.right - 14 * k, r.top + 40 * k, ACCENT, 0xFF000000);
+        }
+        String t = TextUtils.ellipsize(e.optInt("episode_number") + ". " + e.optString("name"), new TextPaint(peekTitle),
+                r.width() - 32 * k, TextUtils.TruncateAt.END).toString();
+        c.drawText(t, r.left + 16 * k, r.bottom - 18 * k, peekTitle);
+        if (on) c.drawRoundRect(r, rad, rad, ring);
     }
 
     // MARK: - Editing your apps (long press OK on an app)
@@ -624,7 +829,7 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
 
     private void scheduleTrailer() {
         stopTrailer();
-        if (running && trailerPick() != null) handler.postDelayed(trailerStart, TRAILER_DELAY);
+        if (running && detail == null && trailerPick() != null) handler.postDelayed(trailerStart, TRAILER_DELAY);
     }
 
     private void fetchTrailer() {
@@ -770,6 +975,7 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
         button = Ui.text(Ui.semibold, 23 * k, 0xFF000000);
         meta = new TextPaint(Ui.text(Ui.medium, 23 * k, 0xFFE4E4E7));
         nameUnder = new TextPaint(Ui.text(Ui.semibold, 28 * k, 0xFFFFFFFF));
+        pill = new TextPaint(Ui.text(Ui.semibold, 23 * k, 0xFFFFFFFF));
         overview = new TextPaint(Ui.text(Ui.regular, 23 * k, 0xFFB4B4BC));
         billTitle = new TextPaint(Ui.text(Ui.displaySemibold, 92 * k, 0xFFFFFFFF));
         billMeta = new TextPaint(Ui.text(Ui.medium, 23 * k, 0xFFE4E4E7));
@@ -808,8 +1014,13 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
             } else {
                 c.drawColor(0xFF000000);
             }
+            if (detail != null && detail.alpha >= 1) {
+                drawDetail(c);
+                return;
+            }
             if (focusRow < 0) drawHome(c); else drawRows(c);
             drawNav(c);
+            if (detail != null) drawDetail(c);   // fading in over the home screen
         }
     }
 

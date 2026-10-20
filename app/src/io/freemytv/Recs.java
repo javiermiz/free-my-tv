@@ -45,7 +45,6 @@ final class Recs {
         String kind;            // "movie" or "tv"
         String title, backdrop, meta = "", app, pkg;
         String link;            // opens the title itself in the app (Stremio), or null = the app's home
-        Bitmap art;             // "Continue on <app>" card: the app's TV art instead of a photo
         boolean detailed;
     }
 
@@ -117,7 +116,7 @@ final class Recs {
     private volatile long failedAt, keyStamp;
     private volatile boolean listEnglish;   // the saved list came in English (titles, genres and texts)
     private volatile Pick resume;           // Stremio's title in progress (config.properties "stremio_key")
-    private volatile long resumeAt, resumeCheckedAt;
+    private volatile long resumeCheckedAt;
 
     private Recs(Context c) {
         context = c;
@@ -132,7 +131,6 @@ final class Recs {
             keyStamp = cache.getLong("keyStamp", 0);
             String r = cache.getString("resume", null);
             if (r != null) resume = parse(new JSONArray().put(new JSONObject(r))).get(0);
-            resumeAt = cache.getLong("resumeAt", 0);
         } catch (Exception ignored) {
         }
     }
@@ -206,30 +204,10 @@ final class Recs {
 
     // MARK: - Continue watching
 
-    /**
-     * Most recent first: Stremio's title in progress (resumes that episode) and the last app opened from the home
-     * screen (Netflix and the rest keep their progress to themselves: Android only lets the factory launcher read it).
-     */
+    /** Stremio's title in progress (resumes that movie or episode); other apps keep their progress to themselves. */
     private List<Pick> continueCards() {
         List<Pick> out = new ArrayList<>();
-        SharedPreferences shelf = context.getSharedPreferences("shelf", Context.MODE_PRIVATE);
-        String last = shelf.getString("lastApp", null);
-        long lastAt = shelf.getLong("lastAppAt", 0);
-        Pick r = resume, a = null;
-        if (last != null && installed(last) && !(r != null && last.equals(STREMIO))) {
-            a = new Pick();
-            a.kind = "app";
-            a.id = last.hashCode();
-            a.pkg = last;
-            a.detailed = true;
-            a.title = Ui.tr("Continuar no ", "Continue on ") + HomeApps.labelOf(context, last);
-            a.meta = Ui.tr("De onde você parou", "Pick up where you left off");
-            a.art = HomeApps.tileFor(context, last);
-        }
-        boolean stremioFirst = r != null && (a == null || resumeAt >= lastAt);
-        if (stremioFirst) out.add(r);
-        if (a != null) out.add(a);
-        if (r != null && !stremioFirst) out.add(r);
+        if (resume != null) out.add(resume);
         return out;
     }
 
@@ -263,8 +241,7 @@ final class Recs {
                 Pick p = best == null ? null : resumePick(best);
                 if (p != null && p.backdrop != null) download(p);
                 resume = p;
-                resumeAt = bestAt;
-                SharedPreferences.Editor e = cache.edit().putLong("resumeAt", bestAt);
+                SharedPreferences.Editor e = cache.edit();
                 if (p == null) e.remove("resume"); else e.putString("resume", json(p).toString());
                 e.apply();
             } catch (Exception e) {

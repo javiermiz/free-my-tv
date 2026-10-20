@@ -63,7 +63,7 @@ final class Recs {
     private static final String IMAGES = "https://image.tmdb.org/t/p/original";
     private static final long LIST_EVERY = 6 * 3600_000L;
     /** Bump when what is saved for each title changes (the saved list is discarded and fetched again). */
-    private static final int CACHE_VERSION = 22;
+    private static final int CACHE_VERSION = 23;
     private static final int MANHA = 0, TARDE = 1, NOITE = 2;
     static final String[] PERIOD_LABEL = {"PARA ESTA MANHÃ", "PARA ESTA TARDE", "PARA ESTA NOITE"};
     static final String[] PERIOD_LABEL_EN = {"THIS MORNING", "THIS AFTERNOON", "TONIGHT"};
@@ -197,7 +197,7 @@ final class Recs {
     }
 
     /** Picks per tab: three on screen, the rest one press of → away. */
-    static final int PER_TAB = 12;
+    static final int PER_TAB = 30;
 
     /** This hour's picks, movies only ("movie") or shows only ("tv"); null = both (the home screen tabs). */
     List<Pick> now(String kind) {
@@ -564,8 +564,8 @@ final class Recs {
         // Trending first, then the new releases; movies and shows alternating, without repeats, up to 24.
         List<Pick> others = new ArrayList<>();
         java.util.Set<String> seen = new java.util.HashSet<>();
-        alternate(others, seen, hotMovies, hotShows, 24);
-        alternate(others, seen, newMovies, newShows, 24);
+        alternate(others, seen, hotMovies, hotShows, 60);
+        alternate(others, seen, newMovies, newShows, 60);
         // 3. Like what you watch on Stremio, every other pick (when there's a Stremio key).
         List<Pick> mine = new ArrayList<>();
         try {
@@ -574,11 +574,12 @@ final class Recs {
             AppLog.w("recommendations from Stremio: " + e.getMessage());
         }
         List<Pick> list = new ArrayList<>();
-        alternate(list, new java.util.HashSet<>(), mine, others, 24);
+        alternate(list, new java.util.HashSet<>(), mine, others, 60);
         if (list.isEmpty()) throw new IOException("TMDB returned no recommendations");
         List<Row> newRows = rows;
         try {
             newRows = fetchRows(services);
+            newRows.addAll(0, because);
         } catch (Exception e) {
             AppLog.w("recommendation rows: " + e.getMessage());
         }
@@ -661,6 +662,12 @@ final class Recs {
         category(out, seen, t("Anime isekai", "Isekai anime"), ja + "&with_keywords=237451");
         category(out, seen, t("Anime de romance", "Romance anime"), ja + "&with_keywords=9840");
         category(out, seen, t("Anime de la vida cotidiana", "Slice of life anime"), ja + "&with_keywords=9914");
+        // Well loved but not famous: to find something new.
+        String gem = "&vote_average.gte=7.4&sort_by=vote_average.desc&without_genres=10762,10764,10767,99";
+        List<Pick> gems = new ArrayList<>();
+        alternate(gems, seen, detailed(discover("movie", gem + "&vote_count.gte=300&vote_count.lte=4000")),
+                detailed(discover("tv", gem + "&vote_count.gte=150&vote_count.lte=2500")), ROW_MAX);
+        row(out, t("Joyas escondidas", "Hidden gems"), gems);
         // Each big service: what came out this past year and people watch most (not decades-old shows on repeat).
         for (String app : new String[] {"netflix", "disney", "prime"}) {
             StringBuilder ids = new StringBuilder();
@@ -675,7 +682,7 @@ final class Recs {
                     + URLEncoder.encode(ids.toString(), "UTF-8");
             List<Pick> mixed = new ArrayList<>();
             alternate(mixed, seen, discover("tv", with + "&first_air_date.gte=" + day(-365)),
-                    discover("movie", with + "&primary_release_date.gte=" + day(-365)), 16);
+                    discover("movie", with + "&primary_release_date.gte=" + day(-365)), ROW_MAX);
             for (Pick p : mixed) {
                 p.app = app;
                 p.pkg = pkg;
@@ -799,19 +806,26 @@ final class Recs {
         return v == null ? null : v.optString("value", null);
     }
 
+    /** TMDB's discover, two pages (40 titles), most popular first unless `filters` sorts otherwise. */
     private List<Pick> discover(String kind, String filters) throws Exception {
-        JSONArray results = get("/discover/" + kind + "?language=" + lang() + "&watch_region=" + REGION
-                + "&include_adult=false&sort_by=popularity.desc" + filters).getJSONArray("results");
         List<Pick> out = new ArrayList<>();
-        for (int i = 0; i < results.length(); i++) add(out, results.getJSONObject(i), kind);
+        for (int page = 1; page <= 2; page++) {
+            JSONObject res = get("/discover/" + kind + "?language=" + lang() + "&watch_region=" + REGION
+                    + "&include_adult=false" + (filters.contains("sort_by=") ? "" : "&sort_by=popularity.desc") + filters + "&page=" + page);
+            JSONArray results = res.getJSONArray("results");
+            for (int i = 0; i < results.length(); i++) add(out, results.getJSONObject(i), kind);
+            if (page >= res.optInt("total_pages", 1)) break;
+        }
         return out;
     }
+
+    private static final int ROW_MAX = 30;
 
     /** Details for each (which app has it), keeping the ones the TV can open. */
     private List<Pick> detailed(List<Pick> list) {
         List<Pick> out = new ArrayList<>();
         for (Pick p : list) {
-            if (out.size() >= 14) break;
+            if (out.size() >= ROW_MAX) break;
             try {
                 fetchDetails(p);
             } catch (Exception e) {
@@ -1162,8 +1176,12 @@ final class Recs {
      * TMDB's "if you liked this" for the 6 titles you watched last on Stremio, leaving out everything already in your
      * Stremio library. Empty without a Stremio key.
      */
+    /** "Because you watched …": a row for each of the last 3 titles you watched on Stremio (from likeWhatYouWatch). */
+    private List<Row> because = new ArrayList<>();
+
     private List<Pick> likeWhatYouWatch() throws Exception {
         List<Pick> out = new ArrayList<>();
+        because = new ArrayList<>();
         String key = Config.STREMIO_KEY.trim();
         if (key.isEmpty()) return out;
         JSONObject res = post("https://api.strem.io/api/datastoreGet", new JSONObject().put("authKey", key)
@@ -1183,15 +1201,17 @@ final class Recs {
         java.util.Collections.sort(recent, (a, b) -> Long.compare(time(b.optJSONObject("state").optString("lastWatched")),
                 time(a.optJSONObject("state").optString("lastWatched"))));
         java.util.Set<String> seen = new java.util.HashSet<>();
-        for (JSONObject it : recent.subList(0, Math.min(6, recent.size()))) {
+        int n = 0;
+        for (JSONObject it : recent.subList(0, Math.min(8, recent.size()))) {
+            boolean ownRow = n++ < 3;
             String kind = it.optString("type").equals("series") ? "tv" : "movie";
             JSONArray found = get("/find/" + it.getString("_id") + "?external_source=imdb_id&language=" + lang())
                     .optJSONArray(kind.equals("tv") ? "tv_results" : "movie_results");
             if (found == null || found.length() == 0) continue;
             JSONArray similar = get("/" + kind + "/" + found.getJSONObject(0).optInt("id") + "/recommendations?language="
                     + lang()).getJSONArray("results");
-            List<Pick> candidates = new ArrayList<>();
-            for (int i = 0; i < similar.length() && candidates.size() < 5; i++) add(candidates, similar.getJSONObject(i), kind);
+            List<Pick> candidates = new ArrayList<>(), row = new ArrayList<>();
+            for (int i = 0; i < similar.length() && candidates.size() < (ownRow ? 20 : 8); i++) add(candidates, similar.getJSONObject(i), kind);
             for (Pick pick : candidates) {
                 if (!seen.add(key(pick))) continue;
                 try {
@@ -1199,7 +1219,14 @@ final class Recs {
                 } catch (Exception e) {
                     continue;
                 }
-                if (pick.pkg != null && (pick.imdb == null || !library.contains(pick.imdb))) out.add(pick);
+                if (pick.pkg == null || (pick.imdb != null && library.contains(pick.imdb))) continue;
+                if (ownRow) row.add(pick); else out.add(pick);
+            }
+            // Its own row; a few of them in "For you" too.
+            if (ownRow) {
+                String name = found.getJSONObject(0).optString(kind.equals("tv") ? "name" : "title", it.optString("name"));
+                row(because, t("Porque viste ", "Because you watched ") + name, row);
+                out.addAll(row.subList(0, Math.min(4, row.size())));
             }
         }
         return out;
@@ -1314,12 +1341,12 @@ final class Recs {
         return out;
     }
 
-    /** Of the 5 best backdrops, the one that holds best as a vertical card too (its subject fits the slice). */
+    /** Of the 3 best backdrops, the one that holds best as a vertical card too (its subject fits the slice). */
     private static String mostVertical(List<String> backdrops) {
         if (backdrops.isEmpty()) return null;
         String best = backdrops.get(0);
         float bestFit = 0;
-        for (String path : backdrops.subList(0, Math.min(5, backdrops.size()))) {
+        for (String path : backdrops.subList(0, Math.min(3, backdrops.size()))) {
             try {
                 HttpURLConnection c = (HttpURLConnection) new URL("https://image.tmdb.org/t/p/w300" + path).openConnection();
                 c.setConnectTimeout(8000);

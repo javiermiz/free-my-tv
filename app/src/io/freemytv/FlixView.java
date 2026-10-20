@@ -469,6 +469,7 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
             if (featured == null || featured.pkg == null) return;
             it = HomeApps.app(featured.pkg, Recs.serviceName(featured));
             it.link = featured.link;
+            if (pickEpisode(featured, it, r)) return;
         } else {
             Card c = focused();
             if (c == null) return;
@@ -476,14 +477,57 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
                 if (c.pick.pkg == null) return;
                 it = HomeApps.app(c.pick.pkg, Recs.serviceName(c.pick));
                 it.link = c.pick.link;
+                if (pickEpisode(c.pick, it, r)) return;
             } else {
                 it = c.app;
             }
         }
+        launch(it, r);
+    }
+
+    private void launch(HomeApps.Item it, RectF r) {
         click.open();
         stopTrailer();
         if (!HomeApps.open(activity, it, this, Math.round(r.left), Math.round(r.top), Math.round(r.width()), Math.round(r.height())))
             Toast.makeText(activity, es("No se pudo abrir ", "Couldn't open ") + it.label, Toast.LENGTH_SHORT).show();
+    }
+
+    /** A show in Stremio: choose the season and episode here, and Stremio opens right on that episode. */
+    private boolean pickEpisode(final Recs.Pick p, final HomeApps.Item it, final RectF r) {
+        final String prefix = "stremio:///detail/series/";
+        if (p.resuming || p.id == 0 || p.link == null || !p.link.startsWith(prefix)) return false;
+        final String imdb = p.link.substring(prefix.length()).split("/")[0];
+        final RectF at = new RectF(r);
+        recs.episodes(p, -1, seasons -> handler.post(() -> {
+            if (seasons == null || seasons.isEmpty()) launch(it, at);
+            else if (seasons.size() == 1) pickEpisodeIn(p, imdb, seasons.get(0)[0], it, at);
+            else choose(p.title, seasons, s -> pickEpisodeIn(p, imdb, s[0], it, at));
+        }));
+        return true;
+    }
+
+    private void pickEpisodeIn(final Recs.Pick p, final String imdb, final String season, final HomeApps.Item it, final RectF at) {
+        recs.episodes(p, Integer.parseInt(season), eps -> handler.post(() -> {
+            if (eps == null || eps.isEmpty()) {
+                launch(it, at);
+                return;
+            }
+            for (String[] e : eps) e[1] = e[0] + ". " + e[1];
+            choose(p.title + " · " + es("Temporada ", "Season ") + season, eps, e -> {
+                it.link = "stremio:///detail/series/" + imdb + "/" + imdb + ":" + season + ":" + e[0];
+                launch(it, at);
+            });
+        }));
+    }
+
+    /** A list to pick from ({value, label} rows). */
+    private void choose(String title, final List<String[]> items, final java.util.function.Consumer<String[]> chosen) {
+        String[] labels = new String[items.size()];
+        for (int i = 0; i < labels.length; i++) labels[i] = items.get(i)[1];
+        new android.app.AlertDialog.Builder(activity, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                .setTitle(title)
+                .setItems(labels, (d, which) -> chosen.accept(items.get(which)))
+                .show();
     }
 
     // MARK: - Editing your apps (long press OK on an app)

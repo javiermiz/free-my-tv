@@ -62,7 +62,7 @@ final class Recs {
     private static final String IMAGES = "https://image.tmdb.org/t/p/original";
     private static final long LIST_EVERY = 6 * 3600_000L;
     /** Bump when what is saved for each title changes (the saved list is discarded and fetched again). */
-    private static final int CACHE_VERSION = 14;
+    private static final int CACHE_VERSION = 15;
     private static final int MANHA = 0, TARDE = 1, NOITE = 2;
     static final String[] PERIOD_LABEL = {"PARA ESTA MANHÃ", "PARA ESTA TARDE", "PARA ESTA NOITE"};
     static final String[] PERIOD_LABEL_EN = {"THIS MORNING", "THIS AFTERNOON", "TONIGHT"};
@@ -675,7 +675,7 @@ final class Recs {
     }
 
     /**
-     * Netflix and Disney+ open on the title itself with its id there, which Wikidata has (by TMDB id): one query for
+     * Netflix, Disney+ and Prime open on the title itself with its id there, which Wikidata has (by TMDB id): one query for
      * movies, one for shows. Without an id, the app opens on its home.
      */
     private int addLinks(List<Pick> all) throws Exception {
@@ -692,9 +692,9 @@ final class Recs {
             if (byId.isEmpty()) continue;
             StringBuilder values = new StringBuilder();
             for (String id : byId.keySet()) values.append(" \"").append(id).append('"');
-            String query = "SELECT ?tm ?nf ?dm ?ds ?imdb WHERE { VALUES ?tm {" + values + " } ?i wdt:"
+            String query = "SELECT ?tm ?nf ?dm ?ds ?pv ?imdb WHERE { VALUES ?tm {" + values + " } ?i wdt:"
                     + (kind.equals("movie") ? "P4947" : "P4983") + " ?tm . OPTIONAL { ?i wdt:P1874 ?nf } "
-                    + "OPTIONAL { ?i wdt:P7595 ?dm } OPTIONAL { ?i wdt:P7596 ?ds } OPTIONAL { ?i wdt:P345 ?imdb } }";
+                    + "OPTIONAL { ?i wdt:P7595 ?dm } OPTIONAL { ?i wdt:P7596 ?ds } OPTIONAL { ?i wdt:P8055 ?pv } OPTIONAL { ?i wdt:P345 ?imdb } }";
             HttpURLConnection c = (HttpURLConnection) new URL("https://query.wikidata.org/sparql?format=json&query="
                     + URLEncoder.encode(query, "UTF-8")).openConnection();
             c.setConnectTimeout(8000);
@@ -710,8 +710,9 @@ final class Recs {
                 JSONObject b = results.getJSONObject(i);
                 List<Pick> l = byId.get(b.getJSONObject("tm").getString("value"));
                 if (l == null) continue;
-                String nf = value(b, "nf"), disney = value(b, kind.equals("movie") ? "dm" : "ds"), imdb = value(b, "imdb");
+                String nf = value(b, "nf"), disney = value(b, kind.equals("movie") ? "dm" : "ds"), imdb = value(b, "imdb"), prime = value(b, "pv");
                 for (Pick p : l) {
+                    if ("prime".equals(p.app) && prime != null) p.link = "https://app.primevideo.com/detail?asin=" + prime;
                     if ("netflix".equals(p.app) && nf != null) p.link = "https://www.netflix.com/title/" + nf;
                     if ("disney".equals(p.app) && disney != null)
                         p.link = "https://www.disneyplus.com/" + (kind.equals("movie") ? "movies" : "series") + "/x/" + disney;
@@ -727,6 +728,36 @@ final class Recs {
             }
         }
         return linked;
+    }
+
+    /**
+     * A show's seasons (season -1) or one season's episodes from TMDB, as {number, name}; `done` gets null if it
+     * couldn't (on a background thread).
+     */
+    void episodes(final Pick p, final int season, final java.util.function.Consumer<List<String[]>> done) {
+        trailerIo.execute(() -> {
+            try {
+                List<String[]> out = new ArrayList<>();
+                if (season < 0) {
+                    JSONArray a = get("/tv/" + p.id + "?language=" + lang()).getJSONArray("seasons");
+                    for (int i = 0; i < a.length(); i++) {
+                        JSONObject o = a.getJSONObject(i);
+                        if (o.optInt("season_number") > 0 && o.optInt("episode_count") > 0)
+                            out.add(new String[] {String.valueOf(o.optInt("season_number")), o.optString("name")});
+                    }
+                } else {
+                    JSONArray a = get("/tv/" + p.id + "/season/" + season + "?language=" + lang()).getJSONArray("episodes");
+                    for (int i = 0; i < a.length(); i++) {
+                        JSONObject o = a.getJSONObject(i);
+                        out.add(new String[] {String.valueOf(o.optInt("episode_number")), o.optString("name")});
+                    }
+                }
+                done.accept(out);
+            } catch (Exception e) {
+                AppLog.w("episodes: " + e.getMessage());
+                done.accept(null);
+            }
+        });
     }
 
     private static void toStremio(Pick p) {

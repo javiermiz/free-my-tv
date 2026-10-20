@@ -45,6 +45,7 @@ final class Recs {
         String kind;            // "movie" or "tv"
         String title, backdrop, meta = "", app, pkg;
         String link;            // opens the title itself in the app (Stremio), or null = the app's home
+        String imdb;            // from the details (not saved): to leave out what you already watched
         boolean detailed;
     }
 
@@ -54,7 +55,7 @@ final class Recs {
     private static final String IMAGES = "https://image.tmdb.org/t/p/original";
     private static final long LIST_EVERY = 6 * 3600_000L;
     /** Bump when what is saved for each title changes (the saved list is discarded and fetched again). */
-    private static final int CACHE_VERSION = 6;
+    private static final int CACHE_VERSION = 7;
     private static final int MANHA = 0, TARDE = 1, NOITE = 2;
     static final String[] PERIOD_LABEL = {"PARA ESTA MANHÃ", "PARA ESTA TARDE", "PARA ESTA NOITE"};
     static final String[] PERIOD_LABEL_EN = {"THIS MORNING", "THIS AFTERNOON", "TONIGHT"};
@@ -526,10 +527,19 @@ final class Recs {
         for (int i = 0; i < movies.length(); i++) add(newMovies, movies.getJSONObject(i), "movie");
         for (int i = 0; i < shows.length(); i++) add(newShows, shows.getJSONObject(i), "tv");
         // Trending first, then the new releases; movies and shows alternating, without repeats, up to 24.
-        List<Pick> list = new ArrayList<>();
+        List<Pick> others = new ArrayList<>();
         java.util.Set<String> seen = new java.util.HashSet<>();
-        alternate(list, seen, hotMovies, hotShows, 24);
-        alternate(list, seen, newMovies, newShows, 24);
+        alternate(others, seen, hotMovies, hotShows, 24);
+        alternate(others, seen, newMovies, newShows, 24);
+        // 3. Like what you watch on Stremio, every other pick (when there's a Stremio key).
+        List<Pick> mine = new ArrayList<>();
+        try {
+            mine = likeWhatYouWatch();
+        } catch (Exception e) {
+            AppLog.w("recommendations from Stremio: " + e.getMessage());
+        }
+        List<Pick> list = new ArrayList<>();
+        alternate(list, new java.util.HashSet<>(), mine, others, 24);
         if (list.isEmpty()) throw new IOException("TMDB returned no recommendations");
         picks = list;
         period = p;
@@ -570,6 +580,53 @@ final class Recs {
         list.add(p);
     }
 
+    /**
+     * TMDB's "if you liked this" for the 6 titles you watched last on Stremio, leaving out everything already in your
+     * Stremio library. Empty without a Stremio key.
+     */
+    private List<Pick> likeWhatYouWatch() throws Exception {
+        List<Pick> out = new ArrayList<>();
+        String key = Config.STREMIO_KEY.trim();
+        if (key.isEmpty()) return out;
+        JSONObject res = post("https://api.strem.io/api/datastoreGet", new JSONObject().put("authKey", key)
+                .put("collection", "libraryItem").put("ids", new JSONArray()).put("all", true));
+        if (res.has("error")) throw new IOException(res.getJSONObject("error").optString("message"));
+        JSONArray items = res.getJSONArray("result");
+        java.util.Set<String> library = new java.util.HashSet<>();
+        List<JSONObject> recent = new ArrayList<>();
+        for (int i = 0; i < items.length(); i++) {
+            JSONObject it = items.getJSONObject(i);
+            String id = it.optString("_id");
+            if (!id.startsWith("tt")) continue;
+            library.add(id);
+            JSONObject st = it.optJSONObject("state");
+            if (st != null && time(st.optString("lastWatched")) > 0) recent.add(it);
+        }
+        java.util.Collections.sort(recent, (a, b) -> Long.compare(time(b.optJSONObject("state").optString("lastWatched")),
+                time(a.optJSONObject("state").optString("lastWatched"))));
+        java.util.Set<String> seen = new java.util.HashSet<>();
+        for (JSONObject it : recent.subList(0, Math.min(6, recent.size()))) {
+            String kind = it.optString("type").equals("series") ? "tv" : "movie";
+            JSONArray found = get("/find/" + it.getString("_id") + "?external_source=imdb_id&language=" + lang())
+                    .optJSONArray(kind.equals("tv") ? "tv_results" : "movie_results");
+            if (found == null || found.length() == 0) continue;
+            JSONArray similar = get("/" + kind + "/" + found.getJSONObject(0).optInt("id") + "/recommendations?language="
+                    + lang()).getJSONArray("results");
+            List<Pick> candidates = new ArrayList<>();
+            for (int i = 0; i < similar.length() && candidates.size() < 5; i++) add(candidates, similar.getJSONObject(i), kind);
+            for (Pick pick : candidates) {
+                if (!seen.add(key(pick))) continue;
+                try {
+                    fetchDetails(pick);
+                } catch (Exception e) {
+                    continue;
+                }
+                if (pick.pkg != null && (pick.imdb == null || !library.contains(pick.imdb))) out.add(pick);
+            }
+        }
+        return out;
+    }
+
     /** Genre, runtime (or seasons) and the service it's on, among the ones the TV has. */
     private void fetchDetails(Pick p) throws Exception {
         JSONObject o = get("/" + p.kind + "/" + p.id
@@ -605,6 +662,7 @@ final class Recs {
         }
         JSONObject ids = o.optJSONObject("external_ids");
         String imdb = ids == null ? "" : ids.optString("imdb_id", "");
+        p.imdb = imdb.startsWith("tt") ? imdb : null;
         if (imdb.startsWith("tt") && installed(STREMIO) && (p.app == null || rank("stremio") < rank(p.app))) {
             p.app = "stremio";
             p.pkg = STREMIO;

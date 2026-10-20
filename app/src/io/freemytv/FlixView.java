@@ -109,6 +109,7 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
 
     private final Paint fill = new Paint(Paint.ANTI_ALIAS_FLAG), bitmapPaint = new Paint(Paint.FILTER_BITMAP_FLAG);
     private final Paint ring = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint spinner = new Paint(Paint.ANTI_ALIAS_FLAG);
     private Paint navOn, navOff, navFocus, rowTitle, rowPeek, cardTitle, wideTitle, kindLabel, badge, weatherText, button, peekTitle;
     private TextPaint meta, overview, billTitle, billMeta, billOverview, nameUnder, pill;
     private final RectF r1 = new RectF(), r2 = new RectF(), logoRect = new RectF();
@@ -526,6 +527,33 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
     private void launch(HomeApps.Item it, RectF r) {
         click.open();
         stopTrailer();
+        // A title in Stremio: straight into its player on the best stream in Spanish (else its page, as before).
+        if (it.link != null && it.link.startsWith("stremio:///detail/") && !Config.STREMIO_KEY.trim().isEmpty()) {
+            final String link = it.link;
+            final long asked = ++streamAsk;
+            findingRect.set(r);
+            findingSince = android.os.SystemClock.uptimeMillis();
+            screen.invalidate();
+            new Thread(() -> {
+                String player = Streams.best(link);
+                handler.post(() -> {
+                    if (asked != streamAsk) return;   // pressed something else meanwhile
+                    findingSince = 0;
+                    screen.invalidate();
+                    it.link = player != null ? player : link;
+                    open(it, r);
+                    it.link = link;
+                });
+            }).start();
+            return;
+        }
+        open(it, r);
+    }
+
+    private long streamAsk, findingSince;
+    private final RectF findingRect = new RectF(), findingArc = new RectF();
+
+    private void open(HomeApps.Item it, RectF r) {
         if (!HomeApps.open(activity, it, this, Math.round(r.left), Math.round(r.top), Math.round(r.width()), Math.round(r.height())))
             Toast.makeText(activity, es("No se pudo abrir ", "Couldn't open ") + it.label, Toast.LENGTH_SHORT).show();
     }
@@ -983,6 +1011,10 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
         ring.setStyle(Paint.Style.STROKE);
         ring.setStrokeWidth(4 * k);
         ring.setColor(0xFFFFFFFF);
+        spinner.setStyle(Paint.Style.STROKE);
+        spinner.setStrokeWidth(4 * k);
+        spinner.setStrokeCap(Paint.Cap.ROUND);
+        spinner.setColor(0xFFFFFFFF);
     }
 
     // MARK: - Drawing
@@ -1016,12 +1048,26 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
             }
             if (detail != null && detail.alpha >= 1) {
                 drawDetail(c);
-                return;
+            } else {
+                if (focusRow < 0) drawHome(c); else drawRows(c);
+                drawNav(c);
+                if (detail != null) drawDetail(c);   // fading in over the home screen
             }
-            if (focusRow < 0) drawHome(c); else drawRows(c);
-            drawNav(c);
-            if (detail != null) drawDetail(c);   // fading in over the home screen
+            drawFinding(c);
         }
+    }
+
+    /** While Stremio's streams are asked for: the pressed card dims and a thin ring turns on it. */
+    private void drawFinding(Canvas c) {
+        if (findingSince == 0) return;
+        float t = (android.os.SystemClock.uptimeMillis() - findingSince) / 1000f;
+        float in = Math.min(1, t / 0.2f), rad = 22 * k, s = 26 * k;
+        fill.setColor(android.graphics.Color.argb(Math.round(110 * in), 0, 0, 0));
+        c.drawRoundRect(findingRect, rad, rad, fill);
+        findingArc.set(findingRect.centerX() - s, findingRect.centerY() - s, findingRect.centerX() + s, findingRect.centerY() + s);
+        spinner.setAlpha(Math.round(255 * in));
+        c.drawArc(findingArc, t * 360 % 360, 100, false, spinner);
+        screen.postInvalidateOnAnimation();
     }
 
     private void drawNav(Canvas c) {

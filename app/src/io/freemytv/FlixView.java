@@ -87,7 +87,10 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
     /** -2 = the menu on top, -1 = the featured title, 0.. = a row. */
     private int focusRow = -1, navIndex, tab;
     private int[] focusCol = new int[0], firstCol = new int[0];   // focused card per row; apps rows: first one shown
-    private float slideX, slideY;
+    private float slideY;
+    // The focused card growing to wide (0 → 1, a little past 1 and back: springy); the one it came from shrinking.
+    private float grow = 1;
+    private int growDir, shrinkIdx = -1;
     private android.animation.ValueAnimator slider;
     private boolean okDown, okLong, moving;
 
@@ -213,7 +216,9 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
         for (int i = 0; i < focusCol.length; i++) focusCol[i] = firstCol[i] = 0;
         featuredIndex = 0;
         if (!featuredList.isEmpty()) featured = featuredList.get(0);
-        slideX = slideY = 0;
+        slideY = 0;
+        grow = 1;
+        shrinkIdx = -1;
         scheduleTrailer();
         screen.invalidate();
     }
@@ -444,23 +449,34 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
         changed(0, 0);
     }
 
-    /** Focus moved: slide the row (dx) or the rows (dy) into place, click, and line up the next trailer. */
+    private static final android.view.animation.Interpolator SPRING = new android.view.animation.OvershootInterpolator(1.3f);
+    private static final android.view.animation.Interpolator EASE = new DecelerateInterpolator(1.6f);
+
+    /**
+     * Focus moved: the rows slide into place (dy); in a title row the new card grows to wide while the old one
+     * shrinks back (dx, or on entering the row); then a click and the next trailer.
+     */
     private void changed(int dx, int dy) {
         if (slider != null) slider.cancel();
         Row r = focusRow >= 0 && focusRow < rows.size() ? rows.get(focusRow) : null;
-        final float fromX = dx > 0 ? WIDE_W + GAP : dx < 0 ? -(POSTER_W + GAP) : 0;
+        boolean titles = r != null && !r.apps;
+        int n = r == null ? 0 : r.cards.size();
+        growDir = titles ? Integer.signum(dx) : 0;
+        shrinkIdx = titles && dx != 0 && n > 1 ? (focusCol[focusRow] - dx + n) % n : -1;
+        final boolean growing = titles && (dx != 0 || dy != 0);
         final float fromY = dy * 600f;
-        if (fromX != 0 || fromY != 0) {
-            slider = android.animation.ValueAnimator.ofFloat(1, 0);
-            slider.setDuration(220);
-            slider.setInterpolator(new DecelerateInterpolator(1.6f));
+        if (growing || fromY != 0) {
+            slider = android.animation.ValueAnimator.ofFloat(0, 1);
+            slider.setDuration(growing ? 340 : 220);
             slider.addUpdateListener(v -> {
-                float f = (float) v.getAnimatedValue();
-                slideX = fromX * f;
-                slideY = fromY * f;
+                float t = (float) v.getAnimatedValue();
+                slideY = fromY * (1 - EASE.getInterpolation(Math.min(1, t * 340 / 220f)));
+                if (growing) grow = SPRING.getInterpolation(t);
                 screen.invalidate();
             });
             slider.start();
+        } else {
+            grow = 1;
         }
         click.move();
         scheduleTrailer();
@@ -893,18 +909,24 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
         float titleY = 168 * k, top = 190 * k;
         c.drawText(r.title, MARGIN * k, titleY, rowTitle);
         int col = focusCol[focusRow], n = r.cards.size();
-        float x = (MARGIN + (r.apps ? 0 : LEAD + slideX)) * k;
+        // Growing: the focused card from poster to wide, the one it came from the other way; the row moves so the
+        // old card starts where it was (→: it shrinks into the peek on the left; ←: the new one comes from there).
+        float g = grow, fw = POSTER_W + (WIDE_W - POSTER_W) * g, sw = WIDE_W - (WIDE_W - POSTER_W) * g;
+        float off = growDir > 0 ? (sw + GAP) * (1 - g) : growDir < 0 ? -(GAP + POSTER_W) * (1 - g) : 0;
+        float x = (MARGIN + (r.apps ? 0 : LEAD + off)) * k;
         if (!r.apps && n > 1) {
             // The one before, peeking in at the left (the last one, before the first).
-            r1.set(x - (GAP + POSTER_W) * k, top, x - GAP * k, top + POSTER_H * k);
-            drawPickCard(c, r.cards.get((col - 1 + n) % n).pick, r1, false);
+            int before = (col - 1 + n) % n;
+            float bw = before == shrinkIdx ? sw : POSTER_W;
+            r1.set(x - (GAP + bw) * k, top, x - GAP * k, top + POSTER_H * k);
+            drawPickCard(c, r.cards.get(before).pick, r1, false);
         }
         int from = r.apps ? firstCol[focusRow] : col, count = r.apps ? n - from : n - (n > 1 ? 1 : 0);
         for (int j = 0; j < count && x < w; j++) {
             int i = r.apps ? from + j : (col + j) % n;
             boolean on = i == col;
             Card card = r.cards.get(i);
-            float cw = (r.apps ? APP_W : (on ? WIDE_W : POSTER_W)) * k;
+            float cw = (r.apps ? APP_W : on ? fw : i == shrinkIdx ? sw : POSTER_W) * k;
             float ch = (r.apps ? APP_H : POSTER_H) * k;
             r1.set(x, top, x + cw, top + ch);
             if (card.pick != null) drawPickCard(c, card.pick, r1, on);

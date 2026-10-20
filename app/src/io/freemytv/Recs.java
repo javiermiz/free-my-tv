@@ -45,6 +45,7 @@ final class Recs {
         String kind;            // "movie" or "tv"
         String title, backdrop, poster, overview = "", meta = "", app, pkg;
         String link;            // opens the title itself in the app (Stremio), or null = the app's home
+        String logo;            // the title's logo (a transparent PNG), or null: its name is written instead
         String imdb;            // from the details (not saved): to leave out what you already watched
         boolean resuming;       // Stremio's title in progress (the "Continue watching" card)
         boolean detailed;
@@ -62,7 +63,7 @@ final class Recs {
     private static final String IMAGES = "https://image.tmdb.org/t/p/original";
     private static final long LIST_EVERY = 6 * 3600_000L;
     /** Bump when what is saved for each title changes (the saved list is discarded and fetched again). */
-    private static final int CACHE_VERSION = 18;
+    private static final int CACHE_VERSION = 19;
     private static final int MANHA = 0, TARDE = 1, NOITE = 2;
     static final String[] PERIOD_LABEL = {"PARA ESTA MANHÃ", "PARA ESTA TARDE", "PARA ESTA NOITE"};
     static final String[] PERIOD_LABEL_EN = {"THIS MORNING", "THIS AFTERNOON", "TONIGHT"};
@@ -281,6 +282,15 @@ final class Recs {
             JSONArray found = get("/find/" + id + "?external_source=imdb_id&language=" + lang())
                     .optJSONArray(series ? "tv_results" : "movie_results");
             o = found != null && found.length() > 0 ? found.getJSONObject(0) : new JSONObject();
+            if (o.length() > 0) {
+                try {
+                    String logo = bestLogo(get("/" + (series ? "tv" : "movie") + "/" + o.optInt("id") + "/images?include_image_language="
+                            + lang().substring(0, 2) + ",en,null"));
+                    if (logo != null) o.put("_logo", logo);
+                } catch (Exception e) {
+                    AppLog.w("logo: " + e.getMessage());
+                }
+            }
             synchronized (foundByImdb) { foundByImdb.put(id, o); }
         }
         if (o != null) {
@@ -290,6 +300,7 @@ final class Recs {
                 p.backdrop = path(o, "backdrop_path");
                 p.poster = path(o, "poster_path");
                 p.overview = o.optString("overview", "");
+                p.logo = o.optString("_logo", "").isEmpty() ? null : o.optString("_logo");
             }
         }
         if (p.title == null || p.title.isEmpty()) p.title = it.optString("name");
@@ -576,6 +587,7 @@ final class Recs {
             List<Pick> all = new ArrayList<>(list);
             for (Row r : newRows) all.addAll(r.picks);
             addLinks(all);
+            addLogos(all);
             int linked = 0, stremio = 0;
             for (Pick q : all) {
                 if (q.link != null) linked++;
@@ -873,7 +885,7 @@ final class Recs {
                     if (!part.renameTo(f)) throw new IOException("couldn't save the image");
                 }
                 BitmapFactory.Options o = new BitmapFactory.Options();
-                o.inPreferredConfig = Bitmap.Config.RGB_565;
+                o.inPreferredConfig = imagePath.endsWith(".png") ? Bitmap.Config.ARGB_8888 : Bitmap.Config.RGB_565;   // logos: transparent
                 Bitmap b = BitmapFactory.decodeFile(f.getPath(), o);
                 if (b == null) throw new IOException("unreadable image");
                 synchronized (thumbs) {
@@ -1139,10 +1151,11 @@ final class Recs {
     /** Genre, runtime (or seasons) and the service it's on, among the ones the TV has. */
     private void fetchDetails(Pick p) throws Exception {
         JSONObject o = get("/" + p.kind + "/" + p.id
-                + "?language=" + lang() + "&append_to_response=watch/providers,images,external_ids&include_image_language=null,pt,en");
+                + "?language=" + lang() + "&append_to_response=watch/providers,images,external_ids&include_image_language=null," + lang().substring(0, 2) + ",en");
         if (p.poster == null) p.poster = path(o, "poster_path");
-        String best = likePoster(p.poster, bestBackdrops(o.optJSONObject("images")));
+        String best = bestBackdrop(o.optJSONObject("images"));
         if (best != null) p.backdrop = best;
+        p.logo = bestLogo(o.optJSONObject("images"));
         if (p.overview == null || p.overview.isEmpty()) p.overview = o.optString("overview", "");
         List<String> parts = new ArrayList<>();
         JSONArray genres = o.optJSONArray("genres");
@@ -1218,76 +1231,52 @@ final class Recs {
      * The title's best backdrop: no text written over it (our own text goes on top of it), at the highest resolution
      * (up to 3840, TMDB's 4K) and, on a tie, the highest rated.
      */
-    private static List<String> bestBackdrops(JSONObject images) {
+    private static String bestBackdrop(JSONObject images) {
         JSONArray list = images == null ? null : images.optJSONArray("backdrops");
-        List<Object[]> scored = new ArrayList<>();
+        String best = null;
+        double bestScore = -1;
         for (int i = 0; list != null && i < list.length(); i++) {
             JSONObject b = list.optJSONObject(i);
             if (b == null || b.optString("file_path", "").isEmpty()) continue;
             boolean textless = b.isNull("iso_639_1");
             int width = b.optInt("width");
             double score = (textless ? 1e7 : 0) + Math.min(width, 3840) * 100 + b.optDouble("vote_average", 0);
-            scored.add(new Object[] {score, b.optString("file_path")});
-        }
-        java.util.Collections.sort(scored, (a, b) -> Double.compare((double) b[0], (double) a[0]));
-        List<String> out = new ArrayList<>();
-        // The ones as good as the best: textless if it is, and at least HD (scores: 1e7 textless + width × 100).
-        double top = scored.isEmpty() ? 0 : (double) scored.get(0)[0];
-        for (Object[] o : scored)
-            if (out.isEmpty() || ((double) o[0] >= 1e7) == (top >= 1e7) && (double) o[0] % 1e7 >= 1280 * 100) out.add((String) o[1]);
-        return out;
-    }
-
-    /**
-     * Of the best few backdrops (textless, sharp), the one whose colors look most like the poster's, so the card
-     * looks like the same picture when it widens; the best one when the poster can't be read.
-     */
-    private static String likePoster(String poster, List<String> backdrops) {
-        if (backdrops.isEmpty()) return null;
-        List<String> some = backdrops.subList(0, Math.min(4, backdrops.size()));
-        if (poster == null || some.size() < 2) return some.get(0);
-        float[] want = colors(IMAGES_SMALL + "w92" + poster);
-        if (want == null) return some.get(0);
-        String best = some.get(0);
-        float bestScore = -1;
-        for (String b : some) {
-            float[] have = colors(IMAGES_SMALL + "w300" + b);
-            if (have == null) continue;
-            float score = 0;
-            for (int i = 0; i < want.length; i++) score += Math.min(want[i], have[i]);
             if (score > bestScore) {
                 bestScore = score;
-                best = b;
+                best = b.optString("file_path");
             }
         }
         return best;
     }
 
-    private static final String IMAGES_SMALL = "https://image.tmdb.org/t/p/";
-
-    /** A small picture's colors: how much of it falls in each of 64 color boxes (4 levels of red, green, blue). */
-    private static float[] colors(String url) {
-        try {
-            HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
-            c.setConnectTimeout(8000);
-            c.setReadTimeout(8000);
-            Bitmap b;
-            try {
-                b = android.graphics.BitmapFactory.decodeStream(c.getInputStream());
-            } finally {
-                c.disconnect();
+    /** The title's logo in your language, else English, else any; the best rated. PNG only (not SVG). */
+    private static String bestLogo(JSONObject images) {
+        JSONArray list = images == null ? null : images.optJSONArray("logos");
+        String mine = lang().substring(0, 2), best = null;
+        double bestScore = -1;
+        for (int i = 0; list != null && i < list.length(); i++) {
+            JSONObject l = list.optJSONObject(i);
+            String path = l == null ? "" : l.optString("file_path", "");
+            if (!path.endsWith(".png")) continue;
+            String in = l.optString("iso_639_1", "");
+            double score = (mine.equals(in) ? 30 : "en".equals(in) ? 20 : 10) + l.optDouble("vote_average", 0);
+            if (score > bestScore) {
+                bestScore = score;
+                best = path;
             }
-            if (b == null) return null;
-            Bitmap small = Bitmap.createScaledBitmap(b, 24, 24, true);
-            float[] h = new float[64];
-            int[] px = new int[24 * 24];
-            small.getPixels(px, 0, 24, 0, 0, 24, 24);
-            for (int c2 : px) h[(((c2 >> 16) & 0xFF) >> 6) * 16 + (((c2 >> 8) & 0xFF) >> 6) * 4 + ((c2 & 0xFF) >> 6)] += 1f / px.length;
-            b.recycle();
-            if (small != b) small.recycle();
-            return h;
-        } catch (Exception e) {
-            return null;
+        }
+        return best;
+    }
+
+    /** Logos for the titles that came without TMDB's images (rows from discover, Continue watching). */
+    private void addLogos(List<Pick> all) {
+        for (Pick p : all) {
+            if (p.logo != null || p.id == 0) continue;
+            try {
+                p.logo = bestLogo(get("/" + p.kind + "/" + p.id + "/images?include_image_language=" + lang().substring(0, 2) + ",en,null"));
+            } catch (Exception e) {
+                AppLog.w("logo: " + e.getMessage());
+            }
         }
     }
 
@@ -1418,7 +1407,7 @@ final class Recs {
         return new JSONObject().put("id", p.id).put("kind", p.kind).put("title", p.title).put("backdrop", p.backdrop)
                 .put("meta", p.meta).put("app", p.app == null ? "" : p.app).put("pkg", p.pkg == null ? "" : p.pkg)
                 .put("link", p.link == null ? "" : p.link).put("detailed", p.detailed)
-                .put("poster", p.poster == null ? "" : p.poster).put("overview", p.overview == null ? "" : p.overview);
+                .put("poster", p.poster == null ? "" : p.poster).put("logo", p.logo == null ? "" : p.logo).put("overview", p.overview == null ? "" : p.overview);
     }
 
     private static List<Pick> parse(JSONArray a) {
@@ -1436,6 +1425,7 @@ final class Recs {
             p.pkg = o.optString("pkg").isEmpty() ? null : o.optString("pkg");
             p.link = o.optString("link").isEmpty() ? null : o.optString("link");
             p.poster = o.optString("poster").isEmpty() ? null : o.optString("poster");
+            p.logo = o.optString("logo").isEmpty() ? null : o.optString("logo");
             p.overview = o.optString("overview");
             p.detailed = o.optBoolean("detailed");
             out.add(p);

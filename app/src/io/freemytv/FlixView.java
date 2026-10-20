@@ -107,7 +107,8 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
     private final Paint ring = new Paint(Paint.ANTI_ALIAS_FLAG);
     private Paint navOn, navOff, navFocus, rowTitle, rowPeek, cardTitle, wideTitle, kindLabel, badge, weatherText, button, peekTitle;
     private TextPaint meta, overview, billTitle, billMeta, billOverview;
-    private final RectF r1 = new RectF(), r2 = new RectF();
+    private final RectF r1 = new RectF(), r2 = new RectF(), logoRect = new RectF();
+    private final java.util.Map<Bitmap, Boolean> darkLogos = new java.util.WeakHashMap<>();   // black logos don't show on the dark fade
     private final Rect src = new Rect();
     private final Path hole = new Path();
 
@@ -852,7 +853,8 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
             float y = r1.top - 30 * k;
             y = drawBlockUp(c, p.overview, billOverview, x, y, 780 * k, 3) - 18 * k;
             y = drawBlockUp(c, p.meta, billMeta, x, y, 900 * k, 1) - 16 * k;
-            y = drawBlockUp(c, p.title, billTitle, x, y, 1000 * k, 2) - 18 * k;
+            float logoTop = drawLogo(c, p, x, y, 620 * k, 170 * k, false);
+            y = (Float.isNaN(logoTop) ? drawBlockUp(c, p.title, billTitle, x, y, 1000 * k, 2) : logoTop) - 18 * k;
             fill.setColor(ACCENT);
             c.drawRect(x, y - 20 * k, x + 6 * k, y + 2 * k, fill);
             c.drawText("tv".equals(p.kind) ? es("SERIE", "SERIES") : es("PELÍCULA", "FILM"), x + 18 * k, y, kindLabel);
@@ -931,37 +933,64 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
         }
     }
 
+    /** The same picture vertical (its middle) and wide; the title's logo, or its name, at the bottom. */
     private void drawPickCard(Canvas c, Recs.Pick p, RectF r, boolean wide) {
         float rad = 12 * k;
         boolean playing = wide && trailerOn && focusRow >= 0;
-        if (!playing) {
-            Bitmap img = wide ? recs.image(p.backdrop, "w780") : recs.image(p.poster, "w342");
-            if (img == null && !wide) img = recs.image(p.backdrop, "w500");
-            drawCover(c, img, r, rad, 0xFF26262A);
-            if (img == null || wide) {
-                // No poster yet, or the wide card: the title on a dark fade at the bottom.
-                fill.setShader(new LinearGradient(0, r.bottom - r.height() * 0.6f, 0, r.bottom, 0x00000000, 0xD8000000, Shader.TileMode.CLAMP));
-                c.drawRoundRect(r, rad, rad, fill);
-                fill.setShader(null);
-            }
-        } else {
-            fill.setShader(new LinearGradient(0, r.bottom - r.height() * 0.45f, 0, r.bottom, 0x00000000, 0xB0000000, Shader.TileMode.CLAMP));
-            c.drawRoundRect(r, rad, rad, fill);
-            fill.setShader(null);
-        }
+        if (!playing) drawCover(c, recs.image(p.backdrop, "w780"), r, rad, 0xFF26262A);
+        fill.setShader(new LinearGradient(0, r.bottom - r.height() * (playing ? 0.45f : 0.5f), 0, r.bottom, 0x00000000,
+                playing ? 0xB0000000 : 0xD0000000, Shader.TileMode.CLAMP));
+        c.drawRoundRect(r, rad, rad, fill);
+        fill.setShader(null);
         if (wide) {
             float x = r.left + 20 * k, y = r.bottom - 22 * k;
-            String t = TextUtils.ellipsize(p.title, new TextPaint(wideTitle), r.width() * 0.62f, TextUtils.TruncateAt.END).toString();
-            c.drawText(t, x, y, wideTitle);
-            c.drawText("tv".equals(p.kind) ? es("SERIE", "SERIES") : es("PELÍCULA", "FILM"), x, y - 54 * k, kindLabel);
+            float top = drawLogo(c, p, x, y, r.width() * 0.42f, r.height() * 0.26f, false);
+            if (Float.isNaN(top)) {
+                String t = TextUtils.ellipsize(p.title, new TextPaint(wideTitle), r.width() * 0.62f, TextUtils.TruncateAt.END).toString();
+                c.drawText(t, x, y, wideTitle);
+                top = y - 40 * k;
+            }
+            c.drawText("tv".equals(p.kind) ? es("SERIE", "SERIES") : es("PELÍCULA", "FILM"), x, top - 14 * k, kindLabel);
             float bx = r.right - 16 * k;
             bx = drawBadge(c, Recs.serviceName(p), bx, r.bottom - 22 * k, 0x99000000, 0xFFFFFFFF);
             if (p.resuming) drawBadge(c, es("Continuar viendo", "Continue watching"), bx - 10 * k, r.bottom - 22 * k, ACCENT, 0xFF000000);
             c.drawRoundRect(r, rad, rad, ring);
-        } else if (p.poster == null || recs.image(p.poster, "w342") == null) {
+        } else if (Float.isNaN(drawLogo(c, p, r.centerX(), r.bottom - 24 * k, r.width() * 0.8f, r.height() * 0.2f, true))) {
             String t = TextUtils.ellipsize(p.title, new TextPaint(peekTitle), r.width() - 24 * k, TextUtils.TruncateAt.END).toString();
-            c.drawText(t, r.left + 12 * k, r.bottom - 16 * k, peekTitle);
+            c.drawText(t, r.centerX() - peekTitle.measureText(t) / 2, r.bottom - 22 * k, peekTitle);
         }
+    }
+
+    /**
+     * The title's logo fit in w × h with its bottom at `bottom`, starting at x (or centered on it); returns its top,
+     * or NaN with no logo (none, still loading, or too dark to read): then the name is written.
+     */
+    private float drawLogo(Canvas c, Recs.Pick p, float x, float bottom, float w, float h, boolean center) {
+        Bitmap logo = p.logo == null ? null : recs.image(p.logo, "w500");
+        if (logo == null || dark(logo)) return Float.NaN;
+        float s = Math.min(w / logo.getWidth(), h / logo.getHeight()), lw = logo.getWidth() * s, lh = logo.getHeight() * s;
+        float left = center ? x - lw / 2 : x;
+        logoRect.set(left, bottom - lh, left + lw, bottom);
+        c.drawBitmap(logo, null, logoRect, bitmapPaint);
+        return bottom - lh;
+    }
+
+    /** Mostly black (on the visible pixels): it wouldn't show on the dark fade. Worked out once per logo. */
+    private boolean dark(Bitmap logo) {
+        Boolean d = darkLogos.get(logo);
+        if (d != null) return d;
+        long sum = 0, n = 0;
+        for (int y = 0; y < logo.getHeight(); y += Math.max(1, logo.getHeight() / 24)) {
+            for (int x = 0; x < logo.getWidth(); x += Math.max(1, logo.getWidth() / 48)) {
+                int px = logo.getPixel(x, y);
+                if ((px >>> 24) < 128) continue;
+                sum += (((px >> 16) & 0xFF) * 3 + ((px >> 8) & 0xFF) * 6 + (px & 0xFF)) / 10;
+                n++;
+            }
+        }
+        d = n > 0 && sum / n < 70;
+        darkLogos.put(logo, d);
+        return d;
     }
 
     private void drawAppCard(Canvas c, HomeApps.Item it, RectF r, boolean on) {

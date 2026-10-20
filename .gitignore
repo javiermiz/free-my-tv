@@ -3,8 +3,9 @@ config.properties
 *.keystore
 *.idsig
 
-# Build output
+# Build output (and the libraries build.sh downloads)
 out/
+libs/
 *.apk
 
 # macOS

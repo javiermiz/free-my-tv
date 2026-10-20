@@ -90,6 +90,15 @@
             </intent-filter>
         </activity>
 
+        <!-- Our own player for direct links (a debrid stream), over the home screen. -->
+        <activity
+            android:name=".PlayerActivity"
+            android:process=":home"
+            android:exported="false"
+            android:screenOrientation="landscape"
+            android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenSize|screenLayout|smallestScreenSize|uiMode|density|fontScale|locale|layoutDirection"
+            android:theme="@style/FreeMyTV.Home" />
+
         <service
             android:name=".Screensaver"
             android:process=":home"

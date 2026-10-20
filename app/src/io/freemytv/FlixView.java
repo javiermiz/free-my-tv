@@ -166,7 +166,7 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
     }
 
     /** Spanish when the app is set to Spanish (or the TV is, on "auto"); otherwise English. */
-    private static String es(String spanish, String english) {
+    static String es(String spanish, String english) {
         String lang = Config.LANGUAGE.trim().toLowerCase(Locale.ROOT);
         boolean es = lang.startsWith("es") || (lang.equals("auto") && "es".equals(Locale.getDefault().getLanguage()));
         return es ? spanish : english;
@@ -527,27 +527,42 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
     private void launch(HomeApps.Item it, RectF r) {
         click.open();
         stopTrailer();
-        // A title in Stremio: straight into its player on the best stream in Spanish (else its page, as before).
+        // A title in Stremio: our own player, on the best stream in Spanish, from where you left it.
         if (it.link != null && it.link.startsWith("stremio:///detail/") && !Config.STREMIO_KEY.trim().isEmpty()) {
             final String link = it.link;
             final long asked = ++streamAsk;
+            final Recs.Pick p = detail != null ? detail.pick : focusRow == -1 ? featured : focused() != null ? focused().pick : null;
             findingRect.set(r);
             findingSince = android.os.SystemClock.uptimeMillis();
             screen.invalidate();
+            final java.io.File cache = activity.getCacheDir();
             new Thread(() -> {
-                String player = Streams.best(link);
+                Streams.Choice choice = Streams.best(link, cache);
                 handler.post(() -> {
                     if (asked != streamAsk) return;   // pressed something else meanwhile
                     findingSince = 0;
                     screen.invalidate();
-                    it.link = player != null ? player : link;
-                    open(it, r);
-                    it.link = link;
+                    if (choice != null) play(choice, p, r);
+                    else Toast.makeText(activity, es("No encontré dónde verlo", "Couldn't find it to watch"), Toast.LENGTH_SHORT).show();
                 });
             }).start();
             return;
         }
         open(it, r);
+    }
+
+    private void play(Streams.Choice choice, Recs.Pick p, RectF r) {
+        String title = p == null ? "" : p.title;
+        String[] v = choice.video.split(":");
+        if (v.length >= 3) title += "  ·  " + es("T", "S") + v[v.length - 2] + " E" + v[v.length - 1];
+        PlayerActivity.choice = choice;
+        PlayerActivity.title = title;
+        PlayerActivity.name = p == null ? "" : p.title;
+        PlayerActivity.posterUrl = p == null || p.poster == null ? null : "https://image.tmdb.org/t/p/w342" + p.poster;
+        PlayerActivity.poster = p == null ? null : recs.image(p.backdrop, "w1280");
+        activity.startActivity(new android.content.Intent(activity, PlayerActivity.class),
+                android.app.ActivityOptions.makeScaleUpAnimation(this, Math.round(r.left), Math.round(r.top),
+                        Math.max(1, Math.round(r.width())), Math.max(1, Math.round(r.height()))).toBundle());
     }
 
     private long streamAsk, findingSince;

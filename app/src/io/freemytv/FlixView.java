@@ -55,25 +55,26 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
     /** The sidebar's tabs (after Search): Home, Shows, Movies, Anime. */
     private static final String[] TAB_KIND = {null, "tv", "movie", "anime"};
     /**
-     * The platforms on top (the ones installed): Recs' service key, name, its color and a ground tinted with it, then
-     * its packages. Choosing one shows only what's on it, in its colors.
+     * The platforms on top (the ones installed): Recs' service key, name, its color and a ground tinted with it, its
+     * one-color logo on TMDB (a transparent PNG, drawn white, or dark on its white pill; "" = its name), then its
+     * packages. Choosing one shows only what's on it, in its colors.
      */
     private static final String[][] PLATFORMS = {
-        {"netflix", "Netflix", "E50914", "0A0505", "com.netflix.ninja"},
-        {"disney", "Disney+", "1F80E0", "040A16", "com.disney.disneyplus"},
-        {"prime", "Prime Video", "00A8E1", "03090D", "com.amazon.amazonvideo.livingroom"},
-        {"max", "Max", "7B5CFF", "07051A", "com.wbd.stream"},
-        {"paramount", "Paramount+", "0064FF", "03061A", "com.cbs.ott", "com.cbs.ca"},
-        {"crunchyroll", "Crunchyroll", "F47521", "0D0702", "com.crunchyroll.crunchyroid"},
-        {"viki", "Viki", "4DB8FF", "040A10", "com.viki.android", "com.viki.androidtv"},
-        {"appletv", "Apple TV", "D4D4D8", "060606", "com.apple.atve.androidtv.appletv"},
-        {"stremio", "Stremio", "9B7BD4", "08060D", "com.stremio.one"},
+        {"netflix", "Netflix", "E50914", "0A0505", "/wwemzKWzjKYJFfCeiB57q3r4Bcm.png", "com.netflix.ninja"},
+        {"disney", "Disney+", "1F80E0", "040A16", "/1edZOYAfoyZyZ3rklNSiUpXX30Q.png", "com.disney.disneyplus"},
+        {"prime", "Prime Video", "00A8E1", "03090D", "/w7HfLNm9CWwRmAMU58udl2L7We7.png", "com.amazon.amazonvideo.livingroom"},
+        {"max", "Max", "7B5CFF", "07051A", "/nmU0UMDJB3dRRQSTUqawzF2Od1a.png", "com.wbd.stream"},
+        {"paramount", "Paramount+", "0064FF", "03061A", "/fi83B1oztoS47xxcemFdPMhIzK.png", "com.cbs.ott", "com.cbs.ca"},
+        {"crunchyroll", "Crunchyroll", "F47521", "0D0702", "/qqyXcZlJQKlRmAD1TCKV7mGLQlt.png", "com.crunchyroll.crunchyroid"},
+        {"viki", "Viki", "4DB8FF", "040A10", "", "com.viki.android"},
+        {"appletv", "Apple TV", "D4D4D8", "060606", "/bngHRFi794mnMq34gfVcm9nDxN1.png", "com.apple.atve.androidtv.appletv"},
+        {"stremio", "Stremio", "9B7BD4", "08060D", "", "com.stremio.one"},
     };
 
     private static final class Platform {
-        String key, name;      // key null = all of them ("For you")
+        String key, name, pkg; // key null = all of them ("For you")
         int accent, ground;
-        Bitmap logo;           // the app's banner (its logo), or null: its name
+        String logo;           // its one-color logo on TMDB, or null: its name
     }
 
     private final List<Platform> platforms = new ArrayList<>();
@@ -155,6 +156,13 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
     private final Paint ring = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint spinner = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint icon = new Paint(Paint.ANTI_ALIAS_FLAG);
+    /** Platform logos: their shape in one color (white, or dark on a white pill). */
+    private final Paint logoLight = new Paint(Paint.FILTER_BITMAP_FLAG | Paint.ANTI_ALIAS_FLAG),
+            logoDark = new Paint(Paint.FILTER_BITMAP_FLAG | Paint.ANTI_ALIAS_FLAG);
+    {
+        logoLight.setColorFilter(new android.graphics.PorterDuffColorFilter(0xFFFFFFFF, android.graphics.PorterDuff.Mode.SRC_IN));
+        logoDark.setColorFilter(new android.graphics.PorterDuffColorFilter(0xFF000000, android.graphics.PorterDuff.Mode.SRC_IN));
+    }
     private final Path iconPath = new Path();
     private Paint navOn, navOff, navFocus, rowTitle, rowPeek, cardTitle, wideTitle, kindLabel, badge, weatherText, button, peekTitle;
     private TextPaint meta, overview, billTitle, billMeta, billOverview, nameUnder, pill;
@@ -357,6 +365,7 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
             Row r = new Row();
             r.title = rr.title;
             for (Recs.Pick p : rr.picks) if (fits(p, kind)) r.cards.add(card(p));
+            if (rr.saga) markNext(r);
             if (!r.cards.isEmpty()) out.add(r);
         }
         // Nothing picked for this tab or platform: the featured titles come from its rows.
@@ -386,6 +395,21 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
         focusCol = cols;
         firstCol = firsts;
         if (focusRow >= rows.size()) focusRow = rows.size() - 1;
+    }
+
+    /** A saga: after the last one you watched, the next is marked (nothing marked if you haven't started it). */
+    private void markNext(Row r) {
+        int last = -1;
+        for (int i = 0; i < r.cards.size(); i++) {
+            r.cards.get(i).pick.sagaNext = false;
+            if (recs.watched(r.cards.get(i).pick)) last = i;
+        }
+        for (int i = last + 1; last >= 0 && i < r.cards.size(); i++) {
+            if (!recs.watched(r.cards.get(i).pick)) {
+                r.cards.get(i).pick.sagaNext = true;
+                return;
+            }
+        }
     }
 
     /** In this tab (shows, movies, anime) and on the chosen platform (Stremio: what opens in it). */
@@ -464,7 +488,10 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
                 else if (focusRow >= 0 || focusRow == -2) focusRow = -1;
                 else if (tab != 0) selectTab(0);
                 else if (platformIndex != 0) selectPlatform(0);
-                else return true;
+                else {
+                    openSide();   // already at the top of Home: the sidebar
+                    return true;
+                }
                 changed(0, 0);
                 return true;
             default:
@@ -500,8 +527,8 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
             return;
         }
         if (focusRow == -1) {
-            if (dx < 0 && (featuredList.size() < 2 || featuredIndex == 0)) {
-                openSide();
+            if (dx < 0 && featuredList.size() < 2) {
+                openSide();   // nothing to go back to: the sidebar
                 return;
             }
             if (dx != 0) {
@@ -523,8 +550,8 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
             return;
         }
         Row r = rows.get(focusRow);
-        if (dx < 0 && focusCol[focusRow] == 0) {
-            openSide();
+        if (dx < 0 && r.apps && focusCol[focusRow] == 0) {
+            openSide();   // apps stop at the ends: past the first, the sidebar (title rows still go round)
             return;
         }
         if (dx != 0) {
@@ -566,7 +593,7 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
         ground = p == null ? 0xFF000000 : p.ground;
     }
 
-    /** The installed platforms, with their logos (their TV banners), "For you" first; kept chosen if still there. */
+    /** The installed platforms, "For you" first; the chosen one kept if still there. */
     private void loadPlatforms() {
         String chosen = platform;
         platforms.clear();
@@ -577,7 +604,7 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
         platforms.add(all);
         android.content.pm.PackageManager pm = getContext().getPackageManager();
         for (String[] s : PLATFORMS) {
-            for (int i = 4; i < s.length; i++) {
+            for (int i = 5; i < s.length; i++) {
                 try {
                     pm.getPackageInfo(s[i], 0);
                 } catch (android.content.pm.PackageManager.NameNotFoundException e) {
@@ -586,14 +613,10 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
                 Platform p = new Platform();
                 p.key = s[0];
                 p.name = s[1];
+                p.pkg = s[i];
                 p.accent = 0xFF000000 | Integer.parseInt(s[2], 16);
                 p.ground = 0xFF000000 | Integer.parseInt(s[3], 16);
-                try {
-                    android.graphics.drawable.Drawable d = pm.getApplicationBanner(s[i]);
-                    if (d != null) p.logo = bitmap(d, 320, 180);
-                } catch (android.content.pm.PackageManager.NameNotFoundException ignored) {
-                    // no banner: its name is written instead
-                }
+                p.logo = s[4].isEmpty() ? null : s[4];
                 platforms.add(p);
                 break;
             }
@@ -601,15 +624,6 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
         int at = 0;
         for (int i = 0; i < platforms.size(); i++) if (chosen != null && chosen.equals(platforms.get(i).key)) at = i;
         setPlatform(at);
-    }
-
-    private static Bitmap bitmap(android.graphics.drawable.Drawable d, int maxW, int maxH) {
-        int bw = d.getIntrinsicWidth() > 0 ? Math.min(maxW, d.getIntrinsicWidth()) : maxW;
-        int bh = d.getIntrinsicHeight() > 0 ? Math.min(maxH, d.getIntrinsicHeight()) : maxH;
-        Bitmap b = Bitmap.createBitmap(bw, bh, Bitmap.Config.ARGB_8888);
-        d.setBounds(0, 0, bw, bh);
-        d.draw(new Canvas(b));
-        return b;
     }
 
     // MARK: - Sidebar: Search, the tabs, Settings
@@ -747,6 +761,12 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
             changed(0, 0);
             return;
         } else if (focusRow == -1) {
+            if (featured == null && platform != null) {
+                // Nothing of this platform to show yet: the card opens its app.
+                Platform pl = platforms.get(platformIndex);
+                launch(HomeApps.app(pl.pkg, pl.name), r);
+                return;
+            }
             if (featured == null || featured.pkg == null) return;
             if (openResume(featured)) return;
             it = HomeApps.app(featured.pkg, Recs.serviceName(featured));
@@ -1389,6 +1409,13 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
 
     private void fetchWatch() {
         final Recs.Pick p = onVideoPage() ? detail.pick : trailerPick();
+        if (p != null && p == watchPick && !watch.waiting() && !onVideoPage()) {
+            // Already playing (the same title on the featured card and in a row): it moves to where the focus is.
+            watchRect.set(focusRow == -1 ? billboardRect(new RectF()) : wideCardRect(new RectF()));
+            place(watch, watchRect);
+            screen.invalidate();
+            return;
+        }
         if (p != null && p == watchPick && watch.waiting()) {
             // Loaded ahead: only to show it.
             watchRect.set(focusRow == -1 ? billboardRect(new RectF()) : wideCardRect(new RectF()));
@@ -1638,12 +1665,11 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
         screen.postInvalidateOnAnimation();
     }
 
-    /** The platforms on top, in a capsule: "For you", then each installed one by its logo (its name without one). */
+    /** The platforms on top, in a capsule: "For you", then each installed one by its logo (white; dark on its pill). */
     private void drawNav(Canvas c) {
         float cy = NAV_H / 2f * k, ih = 52 * k, pad = 8 * k, gap = 4 * k;
-        float logoH = ih - 12 * k;
         float total = pad * 2 - gap;
-        for (Platform p : platforms) total += platformWidth(p, logoH) + gap;
+        for (Platform p : platforms) total += platformWidth(p) + gap;
         r1.set(LEFT * k, cy - ih / 2 - pad, LEFT * k + total, cy + ih / 2 + pad);
         fill.setShader(null);
         fill.setColor(0x1AFFFFFF);
@@ -1651,27 +1677,22 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
         float x = r1.left + pad;
         for (int i = 0; i < platforms.size(); i++) {
             Platform p = platforms.get(i);
-            float pw = platformWidth(p, logoH);
+            float pw = platformWidth(p);
             r2.set(x, cy - ih / 2, x + pw, cy + ih / 2);
-            boolean focus = focusRow == -2 && navIndex == i, chosen = i == platformIndex;
-            if (focus || chosen) {
-                fill.setColor(focus ? 0xFFFFFFFF : 0x33FFFFFF);
+            boolean focus = focusRow == -2 && navIndex == i, on = focus || i == platformIndex;
+            if (on) {
+                fill.setColor(0xFFFFFFFF);
                 c.drawRoundRect(r2, ih / 2, ih / 2, fill);
             }
-            if (p.logo != null) {
-                float lw = logoH * p.logo.getWidth() / p.logo.getHeight();
-                logoRect.set(r2.centerX() - lw / 2, cy - logoH / 2, r2.centerX() + lw / 2, cy + logoH / 2);
-                hole.reset();
-                hole.addRoundRect(logoRect, 8 * k, 8 * k, Path.Direction.CW);
-                c.save();
-                c.clipPath(hole);
-                bitmapPaint.setAlpha(focus || chosen ? 255 : 170);
-                c.drawBitmap(p.logo, null, logoRect, bitmapPaint);
-                bitmapPaint.setAlpha(255);
-                c.restore();
+            Bitmap logo = p.logo == null ? null : recs.image(p.logo, "w300");
+            if (logo != null) {
+                float lh = logoH(logo) * k, lw = Math.min(LOGO_W * k, lh * logo.getWidth() / logo.getHeight());
+                lh = lw * logo.getHeight() / logo.getWidth();
+                logoRect.set(r2.centerX() - lw / 2, cy - lh / 2, r2.centerX() + lw / 2, cy + lh / 2);
+                c.drawBitmap(logo, null, logoRect, on ? logoDark : logoLight);
             } else {
-                Paint tp = focus ? navFocus : chosen ? navOn : navOff;
-                c.drawText(p.name, r2.left + 24 * k, cy + Ui.halfCap(tp), tp);
+                Paint tp = on ? navFocus : navOn;
+                c.drawText(p.name, r2.centerX() - tp.measureText(p.name) / 2, cy + Ui.halfCap(tp), tp);
             }
             x += pw + gap;
         }
@@ -1690,8 +1711,17 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
         }
     }
 
-    private float platformWidth(Platform p, float logoH) {
-        return p.logo != null ? logoH * p.logo.getWidth() / p.logo.getHeight() + 16 * k : navOn.measureText(p.name) + 48 * k;
+    private static final float LOGO_H = 26, LOGO_W = 120;
+
+    private float platformWidth(Platform p) {
+        Bitmap logo = p.logo == null ? null : recs.image(p.logo, "w300");
+        if (logo == null) return navOn.measureText(p.name) + 48 * k;
+        return Math.min(LOGO_W * k, logoH(logo) * k * logo.getWidth() / logo.getHeight()) + 44 * k;
+    }
+
+    /** Wide wordmarks 26 high; squarer logos (Disney+) taller, so they read the same size. */
+    private static float logoH(Bitmap logo) {
+        return logo.getWidth() < 2.5f * logo.getHeight() ? 40 : LOGO_H;
     }
 
     /**
@@ -1815,6 +1845,26 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
         c.drawRoundRect(b, rad, rad, fill);
         fill.setShader(null);
         if (focusRow == -1) c.drawRoundRect(b, rad, rad, ring);
+        if (p == null && platform != null) {
+            // Nothing of this platform to show (yet): its logo and a button that opens it.
+            Platform pl = platforms.get(platformIndex);
+            float x = b.left + 64 * k, bottom = b.bottom - 64 * k;
+            String cta = es("Abrir ", "Open ") + pl.name;
+            float bh = 62 * k, bw = button.measureText(cta) + 92 * k;
+            r1.set(x, bottom - bh, x + bw, bottom);
+            fill.setColor(0xFFFFFFFF);
+            c.drawRoundRect(r1, bh / 2, bh / 2, fill);
+            c.drawPath(playTriangle(x + 34 * k, r1.centerY(), 20 * k), button);
+            c.drawText(cta, x + 64 * k, r1.centerY() + Ui.halfCap(button), button);
+            Bitmap logo = pl.logo == null ? null : recs.image(pl.logo, "w300");
+            if (logo != null) {
+                float lw = Math.min(560 * k, 120 * k * logo.getWidth() / logo.getHeight()), lh = lw * logo.getHeight() / logo.getWidth();
+                logoRect.set(x, r1.top - 48 * k - lh, x + lw, r1.top - 48 * k);
+                c.drawBitmap(logo, null, logoRect, logoLight);
+            } else {
+                c.drawText(pl.name, x, r1.top - 48 * k, billTitle);
+            }
+        }
         if (p != null) {
             float x = b.left + 64 * k, bottom = b.bottom - 64 * k;
             // Bottom up: buttons, overview, meta, title, label.
@@ -1953,6 +2003,7 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
             float bx = r.right - 16 * k;
             bx = drawBadge(c, Recs.serviceName(p), bx, r.bottom - 22 * k, 0x99000000, 0xFFFFFFFF);
             if (p.resuming) drawBadge(c, es("Continuar viendo", "Continue watching"), bx - 10 * k, r.bottom - 22 * k, accent, 0xFF000000);
+            else if (p.sagaNext) drawBadge(c, es("Sigue en la saga", "Next in the saga"), bx - 10 * k, r.bottom - 22 * k, accent, 0xFF000000);
             c.drawRoundRect(r, rad, rad, ring);
         } else if (Float.isNaN(drawLogo(c, p, r.centerX(), r.bottom - 24 * k, r.width() * 0.8f, r.height() * 0.2f, true))) {
             String t = TextUtils.ellipsize(p.title, new TextPaint(peekTitle), r.width() - 24 * k, TextUtils.TruncateAt.END).toString();

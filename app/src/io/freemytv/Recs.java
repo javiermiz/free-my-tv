@@ -53,12 +53,14 @@ final class Recs {
         boolean resuming;       // Stremio's title in progress (the "Continue watching" card)
         String services = "";   // the services it's on in your country ("netflix,disney"), for the platform filter
         boolean anime;          // Japanese animation (the Anime tab)
+        boolean sagaNext;       // the next one to watch in its saga (set by the home screen, not saved)
         boolean detailed;
     }
 
     /** A row under the apps (K-dramas, Anime, Trending on Netflix...). */
     static final class Row {
         String title;
+        boolean saga;           // a saga's films in release order
         List<Pick> picks = new ArrayList<>();
     }
 
@@ -68,7 +70,7 @@ final class Recs {
     private static final String IMAGES = "https://image.tmdb.org/t/p/original";
     private static final long LIST_EVERY = 6 * 3600_000L;
     /** Bump when what is saved for each title changes (the saved list is discarded and fetched again). */
-    private static final int CACHE_VERSION = 25;
+    private static final int CACHE_VERSION = 27;
     private static final int MANHA = 0, TARDE = 1, NOITE = 2;
     static final String[] PERIOD_LABEL = {"PARA ESTA MANHÃ", "PARA ESTA TARDE", "PARA ESTA NOITE"};
     static final String[] PERIOD_LABEL_EN = {"THIS MORNING", "THIS AFTERNOON", "TONIGHT"};
@@ -86,7 +88,6 @@ final class Recs {
         {"max", "max", "com.wbd.stream"},
         {"apple tv", "appletv", "com.apple.atve.androidtv.appletv"},
         {"viki", "viki", "com.viki.android"},
-        {"viki", "viki", "com.viki.androidtv"},
     };
     /** Which app a pick opens when it's on several: first in this list wins, then the rest in SERVICES order. */
     private static final List<String> PRIORITY = Arrays.asList("stremio", "netflix", "disney", "prime");   // Stremio first: it opens on the episode
@@ -132,7 +133,13 @@ final class Recs {
     private volatile boolean light;     // light design: builds only the cards (all three tabs' cards fit in memory)
     private volatile long failedAt, keyStamp;
     private volatile boolean listEnglish;   // the saved list came in English (titles, genres and texts)
-    private volatile List<Pick> resumes = new ArrayList<>();   // Stremio's titles in progress, last watched first ("stremio_key")
+    private volatile List<Pick> resumes = new ArrayList<>();
+    /** The IMDb ids you've watched on Stremio (for "Next in the saga"). */
+    private volatile java.util.Set<String> watched = new java.util.HashSet<>();
+
+    boolean watched(Pick p) {
+        return p.imdb != null && watched.contains(p.imdb);
+    }   // Stremio's titles in progress, last watched first ("stremio_key")
     private final Map<String, JSONObject> foundByImdb = new HashMap<>();   // TMDB's match for each, asked once
     private volatile List<Row> rows = new ArrayList<>();
     private final ExecutorService thumbIo = Executors.newSingleThreadExecutor();
@@ -250,9 +257,11 @@ final class Recs {
                 if (res.has("error")) throw new IOException(res.getJSONObject("error").optString("message"));
                 JSONArray items = res.getJSONArray("result");
                 List<JSONObject> going = new ArrayList<>();
+                java.util.Set<String> seen = new java.util.HashSet<>();
                 for (int i = 0; i < items.length(); i++) {
                     JSONObject it = items.getJSONObject(i);
                     JSONObject st = it.optJSONObject("state");
+                    if (st != null && (st.optInt("timesWatched") > 0 || st.optInt("flaggedWatched") > 0)) seen.add(it.optString("_id"));
                     // In progress: a position saved, and either in the library or only watched (temp).
                     if (st == null || st.optLong("timeOffset") <= 0 || !it.optString("_id").startsWith("tt")) continue;
                     if (it.optBoolean("removed") && !it.optBoolean("temp")) continue;
@@ -269,6 +278,7 @@ final class Recs {
                     saved.put(json(p));
                 }
                 resumes = out;
+                watched = seen;
                 cache.edit().putString("resumes", saved.toString()).remove("resume").apply();
             } catch (Exception e) {
                 AppLog.w("continue watching: " + e.getMessage());
@@ -742,7 +752,10 @@ final class Recs {
                     java.util.Collections.sort(parts, (a, b) -> a.optString("release_date").compareTo(b.optString("release_date")));
                     for (JSONObject o : parts) add(films, o, "movie");
                 }
-                row(out, t(s[0], s[1]), detailed(films));
+                List<Pick> found = detailed(films);
+                Row r = row(out, t(s[0], s[1]), found);
+                if (r != null) r.saga = true;
+                AppLog.w("saga " + s[1] + ": " + films.size() + " films, " + found.size() + " you can open");
             } catch (Exception e) {
                 AppLog.w("saga " + s[1] + ": " + e.getMessage());
             }
@@ -884,12 +897,13 @@ final class Recs {
         return out;
     }
 
-    private static void row(List<Row> out, String title, List<Pick> picks) {
-        if (picks.isEmpty()) return;
+    private static Row row(List<Row> out, String title, List<Pick> picks) {
+        if (picks.isEmpty()) return null;
         Row r = new Row();
         r.title = title;
         r.picks = picks;
         out.add(r);
+        return r;
     }
 
     private static JSONArray rowsJson(List<Row> rows) throws org.json.JSONException {
@@ -897,7 +911,7 @@ final class Recs {
         for (Row r : rows) {
             JSONArray picks = new JSONArray();
             for (Pick p : r.picks) picks.put(json(p));
-            a.put(new JSONObject().put("title", r.title).put("picks", picks));
+            a.put(new JSONObject().put("title", r.title).put("saga", r.saga).put("picks", picks));
         }
         return a;
     }
@@ -907,7 +921,8 @@ final class Recs {
         for (int i = 0; i < a.length(); i++) {
             JSONObject o = a.optJSONObject(i);
             if (o == null || o.optJSONArray("picks") == null) continue;
-            row(out, o.optString("title"), parse(o.optJSONArray("picks")));
+            Row r = row(out, o.optString("title"), parse(o.optJSONArray("picks")));
+            if (r != null) r.saga = o.optBoolean("saga");
         }
         return out;
     }
@@ -1602,7 +1617,8 @@ final class Recs {
                 .put("meta", p.meta).put("app", p.app == null ? "" : p.app).put("pkg", p.pkg == null ? "" : p.pkg)
                 .put("link", p.link == null ? "" : p.link).put("detailed", p.detailed)
                 .put("poster", p.poster == null ? "" : p.poster).put("logo", p.logo == null ? "" : p.logo).put("logoMine", p.logoMine).put("year", p.year).put("rating", p.rating).put("overview", p.overview == null ? "" : p.overview)
-                .put("services", p.services == null ? "" : p.services).put("anime", p.anime);
+                .put("services", p.services == null ? "" : p.services).put("anime", p.anime)
+                .put("imdb", p.imdb == null ? "" : p.imdb);
     }
 
     private static List<Pick> parse(JSONArray a) {
@@ -1628,6 +1644,7 @@ final class Recs {
             p.detailed = o.optBoolean("detailed");
             p.services = o.optString("services");
             p.anime = o.optBoolean("anime");
+            p.imdb = o.optString("imdb").isEmpty() ? null : o.optString("imdb");
             out.add(p);
         }
         return out;

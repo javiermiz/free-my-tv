@@ -608,10 +608,10 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
             + "<style>html,body{margin:0;width:100%;height:100%;background:#000;overflow:hidden}#p{position:absolute;border:0}</style>"
             + "</head><body><div id=p></div><script src='https://www.youtube.com/iframe_api'></script><script>"
             + "var player=null,ready=false,pending=null;addEventListener('resize',fit);"
-            // Cover the card (its visible size: the layout viewport here measured the whole screen): the 16:9 video
-            // scaled to fill it, 40% larger so YouTube's title and logo, and black bars some trailers have, fall outside.
+            // Fit the card (its visible size: the layout viewport here measured the whole screen) at the video's own
+            // 16:9, no zoom: on a 16:9 card it fits exactly; on the wider featured card it fills the width.
             + "function fit(){var vv=window.visualViewport,W=vv?vv.width:innerWidth,H=vv?vv.height:innerHeight,"
-            + "vw=Math.max(W,H*16/9)*1.4,vh=vw*9/16,f=document.getElementById('p');if(!f)return;"
+            + "vw=Math.max(W,H*16/9),vh=vw*9/16,f=document.getElementById('p');if(!f)return;"
             + "f.style.width=vw+'px';f.style.height=vh+'px';f.style.left=((W-vw)/2)+'px';f.style.top=((H-vh)/2)+'px';}"
             + "var M=false;function sound(p){if(M){p.mute();}else{p.unMute();p.setVolume(70);}}"
             + "function onYouTubeIframeAPIReady(){ready=true;if(pending){var a=pending;pending=null;play.apply(null,a);}}"

@@ -88,7 +88,7 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
     private int focusRow = -1, navIndex, tab;
     private int[] focusCol = new int[0], firstCol = new int[0];   // focused card per row; apps rows: first one shown
     private float slideY;
-    // The focused card growing to wide (0 → 1, a little past 1 and back: springy); the one it came from shrinking.
+    // The focused card growing to wide (0 → 1); the one it came from shrinking.
     private float grow = 1;
     private int growDir, shrinkIdx = -1;
     private android.animation.ValueAnimator slider;
@@ -449,7 +449,7 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
         changed(0, 0);
     }
 
-    private static final android.view.animation.Interpolator SPRING = new android.view.animation.OvershootInterpolator(1.3f);
+    private static final android.view.animation.Interpolator SPRING = new DecelerateInterpolator(2f);   // eases out, no bounce
     private static final android.view.animation.Interpolator EASE = new DecelerateInterpolator(1.6f);
 
     /**
@@ -467,10 +467,10 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
         final float fromY = dy * 600f;
         if (growing || fromY != 0) {
             slider = android.animation.ValueAnimator.ofFloat(0, 1);
-            slider.setDuration(growing ? 340 : 220);
+            slider.setDuration(growing ? 260 : 220);
             slider.addUpdateListener(v -> {
                 float t = (float) v.getAnimatedValue();
-                slideY = fromY * (1 - EASE.getInterpolation(Math.min(1, t * 340 / 220f)));
+                slideY = fromY * (1 - EASE.getInterpolation(Math.min(1, t * 260 / 220f)));
                 if (growing) grow = SPRING.getInterpolation(t);
                 screen.invalidate();
             });

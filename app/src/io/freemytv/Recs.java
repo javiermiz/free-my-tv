@@ -46,7 +46,14 @@ final class Recs {
         String title, backdrop, meta = "", app, pkg;
         String link;            // opens the title itself in the app (Stremio), or null = the app's home
         String imdb;            // from the details (not saved): to leave out what you already watched
+        boolean resuming;       // Stremio's title in progress (the "Continue watching" card)
         boolean detailed;
+    }
+
+    /** A row under the apps (K-dramas, Anime, Trending on Netflix...). */
+    static final class Row {
+        String title;
+        List<Pick> picks = new ArrayList<>();
     }
 
     interface Listener { void onRecs(); }
@@ -55,7 +62,7 @@ final class Recs {
     private static final String IMAGES = "https://image.tmdb.org/t/p/original";
     private static final long LIST_EVERY = 6 * 3600_000L;
     /** Bump when what is saved for each title changes (the saved list is discarded and fetched again). */
-    private static final int CACHE_VERSION = 7;
+    private static final int CACHE_VERSION = 9;
     private static final int MANHA = 0, TARDE = 1, NOITE = 2;
     static final String[] PERIOD_LABEL = {"PARA ESTA MANHÃ", "PARA ESTA TARDE", "PARA ESTA NOITE"};
     static final String[] PERIOD_LABEL_EN = {"THIS MORNING", "THIS AFTERNOON", "TONIGHT"};
@@ -117,6 +124,10 @@ final class Recs {
     private volatile long failedAt, keyStamp;
     private volatile boolean listEnglish;   // the saved list came in English (titles, genres and texts)
     private volatile Pick resume;           // Stremio's title in progress (config.properties "stremio_key")
+    private volatile List<Row> rows = new ArrayList<>();
+    private final ExecutorService thumbIo = Executors.newSingleThreadExecutor();
+    private final Map<String, Bitmap> thumbs = new LinkedHashMap<>();   // row cards, small (TMDB w500)
+    private final java.util.Set<String> thumbPending = new java.util.HashSet<>();
     private volatile long resumeCheckedAt;
 
     private Recs(Context c) {
@@ -132,6 +143,9 @@ final class Recs {
             keyStamp = cache.getLong("keyStamp", 0);
             String r = cache.getString("resume", null);
             if (r != null) resume = parse(new JSONArray().put(new JSONObject(r))).get(0);
+            if (resume != null) resume.resuming = true;
+            String savedRows = cache.getString("rows", null);
+            if (savedRows != null) rows = parseRows(new JSONArray(savedRows));
         } catch (Exception ignored) {
         }
     }
@@ -274,6 +288,7 @@ final class Recs {
         p.app = "stremio";
         p.pkg = STREMIO;
         p.detailed = true;
+        p.resuming = true;
         p.link = "stremio:///detail/" + (series ? "series" : "movie") + "/" + id + "/" + st.optString("video_id", id);
         List<String> parts = new ArrayList<>();
         int season = st.optInt("season"), episode = st.optInt("episode");
@@ -541,6 +556,11 @@ final class Recs {
         List<Pick> list = new ArrayList<>();
         alternate(list, new java.util.HashSet<>(), mine, others, 24);
         if (list.isEmpty()) throw new IOException("TMDB returned no recommendations");
+        try {
+            rows = fetchRows(services);
+        } catch (Exception e) {
+            AppLog.w("recommendation rows: " + e.getMessage());
+        }
         picks = list;
         period = p;
         listAt = System.currentTimeMillis();
@@ -578,6 +598,140 @@ final class Recs {
         p.title = o.optString(kind.equals("movie") ? "title" : "name");
         p.backdrop = backdrop;
         list.add(p);
+    }
+
+    /** The rows under the apps. */
+    List<Row> rows() {
+        return hasKey(context) ? rows : new ArrayList<>();
+    }
+
+    /**
+     * K-dramas and anime (each opens in the app that has it, by the usual priority), then what's popular on each of
+     * the TV's big services (opens that service).
+     */
+    private List<Row> fetchRows(Map<Integer, String[]> services) throws Exception {
+        List<Row> out = new ArrayList<>();
+        row(out, "K-dramas", detailed(discover("tv", "&with_original_language=ko&with_genres=18&vote_count.gte=50")));
+        row(out, "Anime", detailed(discover("tv", "&with_original_language=ja&with_genres=16&without_genres=10762,10751&vote_count.gte=50")));
+        for (String app : new String[] {"netflix", "disney", "prime"}) {
+            StringBuilder ids = new StringBuilder();
+            String pkg = null;
+            for (Map.Entry<Integer, String[]> e : services.entrySet()) {
+                if (!e.getValue()[1].equals(app)) continue;
+                ids.append(ids.length() == 0 ? "" : "|").append(e.getKey());
+                pkg = e.getValue()[2];
+            }
+            if (pkg == null) continue;
+            String with = "&with_watch_monetization_types=flatrate&with_watch_providers=" + URLEncoder.encode(ids.toString(), "UTF-8");
+            List<Pick> mixed = new ArrayList<>();
+            alternate(mixed, new java.util.HashSet<>(), discover("tv", with), discover("movie", with), 16);
+            for (Pick p : mixed) {
+                p.app = app;
+                p.pkg = pkg;
+                p.detailed = true;
+            }
+            row(out, Ui.tr("Em alta no ", "Trending on ") + SERVICE_NAME.get(app), mixed);
+        }
+        cache.edit().putString("rows", rowsJson(out).toString()).apply();
+        return out;
+    }
+
+    private List<Pick> discover(String kind, String filters) throws Exception {
+        JSONArray results = get("/discover/" + kind + "?language=" + lang() + "&watch_region=" + REGION
+                + "&include_adult=false&sort_by=popularity.desc" + filters).getJSONArray("results");
+        List<Pick> out = new ArrayList<>();
+        for (int i = 0; i < results.length(); i++) add(out, results.getJSONObject(i), kind);
+        return out;
+    }
+
+    /** Details for each (which app has it), keeping the ones the TV can open. */
+    private List<Pick> detailed(List<Pick> list) {
+        List<Pick> out = new ArrayList<>();
+        for (Pick p : list) {
+            if (out.size() >= 16) break;
+            try {
+                fetchDetails(p);
+            } catch (Exception e) {
+                continue;
+            }
+            if (p.pkg != null) out.add(p);
+        }
+        return out;
+    }
+
+    private static void row(List<Row> out, String title, List<Pick> picks) {
+        if (picks.isEmpty()) return;
+        Row r = new Row();
+        r.title = title;
+        r.picks = picks;
+        out.add(r);
+    }
+
+    private static JSONArray rowsJson(List<Row> rows) throws org.json.JSONException {
+        JSONArray a = new JSONArray();
+        for (Row r : rows) {
+            JSONArray picks = new JSONArray();
+            for (Pick p : r.picks) picks.put(json(p));
+            a.put(new JSONObject().put("title", r.title).put("picks", picks));
+        }
+        return a;
+    }
+
+    private static List<Row> parseRows(JSONArray a) {
+        List<Row> out = new ArrayList<>();
+        for (int i = 0; i < a.length(); i++) {
+            JSONObject o = a.optJSONObject(i);
+            if (o == null || o.optJSONArray("picks") == null) continue;
+            row(out, o.optString("title"), parse(o.optJSONArray("picks")));
+        }
+        return out;
+    }
+
+    /** A row card's image (TMDB's 500 px backdrop, kept on disk), or null while it loads. */
+    Bitmap thumb(Pick p) {
+        if (p == null || p.backdrop == null) return null;
+        final String key = p.backdrop;
+        synchronized (thumbs) {
+            Bitmap b = thumbs.get(key);
+            if (b != null) return b;
+            if (!thumbPending.add(key)) return null;
+        }
+        thumbIo.execute(() -> {
+            try {
+                File f = new File(new File(context.getCacheDir(), "thumbs"), key.replace("/", ""));
+                if (!f.exists()) {
+                    //noinspection ResultOfMethodCallIgnored
+                    f.getParentFile().mkdirs();
+                    HttpURLConnection c = (HttpURLConnection) new URL("https://image.tmdb.org/t/p/w500" + key).openConnection();
+                    c.setConnectTimeout(8000);
+                    c.setReadTimeout(15000);
+                    File part = new File(f.getPath() + ".part");
+                    try (InputStream in = c.getInputStream(); FileOutputStream out = new FileOutputStream(part)) {
+                        byte[] buffer = new byte[16384];
+                        int n;
+                        while ((n = in.read(buffer)) > 0) out.write(buffer, 0, n);
+                    } finally {
+                        c.disconnect();
+                    }
+                    if (!part.renameTo(f)) throw new IOException("couldn't save the image");
+                }
+                BitmapFactory.Options o = new BitmapFactory.Options();
+                o.inPreferredConfig = Bitmap.Config.RGB_565;
+                Bitmap b = BitmapFactory.decodeFile(f.getPath(), o);
+                if (b == null) throw new IOException("unreadable image");
+                synchronized (thumbs) {
+                    thumbs.put(key, b);
+                    // ponytail: simple insertion-order cap; an LRU only if rows grow past ~100 cards.
+                    while (thumbs.size() > 100) thumbs.remove(thumbs.keySet().iterator().next());
+                }
+                notifyListeners();
+            } catch (Exception e) {
+                AppLog.w("row image: " + e.getMessage());
+            } finally {
+                synchronized (thumbs) { thumbPending.remove(key); }
+            }
+        });
+        return null;
     }
 
     /**

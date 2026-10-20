@@ -46,7 +46,7 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
     private static final float MARGIN = 72, NAV_H = 120;
     private static final float POSTER_W = 360, POSTER_H = 540, WIDE_W = 960, GAP = 20;   // the focused card: half the screen
     private static final float APP_W = 400, APP_H = 225;
-    private static final float BILL_TOP = 132, BILL_H = 620;
+    private static final float BILL_TOP = 132, BILL_H = 770;
     private static final long TRAILER_DELAY = 700, ROTATE_EVERY = 20_000;
     private static final int FEATURED_MAX = 6;
     private static final int ACCENT = 0xFFF5A524;
@@ -558,8 +558,10 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
     private void fetchTrailer() {
         final Recs.Pick p = trailerPick();
         if (p == null) return;
-        recs.trailer(p, key -> {
-            if (key == null || !running || p != trailerPick()) return;
+        recs.trailer(p, found -> {
+            if (found == null || !running || p != trailerPick()) return;
+            final String key = found.substring(0, found.indexOf('|'));
+            final boolean subs = !found.endsWith("|" + es("es", "en"));
             trailerKey = key;
             RectF r = focusRow == -1 ? billboardRect(new RectF()) : wideCardRect(new RectF());
             trailerRect.set(r);
@@ -569,8 +571,12 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
             lp.topMargin = Math.round(r.top);
             trailerBox.setLayoutParams(lp);
             // After the layout pass: the player must crop for this card's size, not the last one's.
+            // Started after the layout pass, so the page measures this card, not the last one.
+            float d = getResources().getDisplayMetrics().density;
+            final String call = String.format(Locale.US, "play('%s',%.1f,%.1f,%b,'%s')", key, r.width() / d, r.height() / d,
+                    subs, es("es", "en"));
             trailerBox.post(() -> {
-                if (key.equals(trailerKey)) web.evaluateJavascript("play('" + key + "')", null);
+                if (key.equals(trailerKey)) web.evaluateJavascript(call, null);
             });
         });
         // The next card's trailer, looked up ahead so it starts sooner.
@@ -595,24 +601,32 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
     private static final String PLAYER = "<!doctype html><html><head><meta name=viewport content='width=device-width,initial-scale=1'>"
             + "<style>html,body{margin:0;width:100%;height:100%;background:#000;overflow:hidden}#p{position:absolute;border:0}</style>"
             + "</head><body><div id=p></div><script src='https://www.youtube.com/iframe_api'></script><script>"
-            + "var player=null,ready=false,pending=null;"
-            + "function fit(){var w=innerWidth,h=innerHeight,vw=Math.max(w,h*16/9)*1.2,vh=vw*9/16,f=document.getElementById('p');"
-            + "f.style.width=vw+'px';f.style.height=vh+'px';f.style.left=((w-vw)/2)+'px';f.style.top=((h-vh)/2)+'px';}"
-            + "function onYouTubeIframeAPIReady(){ready=true;if(pending){var k=pending;pending=null;play(k);}}"
-            + "function play(k){if(!ready){pending=k;return;}fit();"
+            + "var player=null,ready=false,pending=null;addEventListener('resize',fit);"
+            // Cover the W×H card: the 16:9 video scaled to fill it, 28% larger so YouTube's title and logo, and the
+            // black bars some trailers have baked in, fall outside.
+            + "function fit(){var W=innerWidth,H=innerHeight,vw=Math.max(W,H*16/9)*1.28,vh=vw*9/16,f=document.getElementById('p');if(!f)return;"
+            + "f.style.width=vw+'px';f.style.height=vh+'px';f.style.left=((W-vw)/2)+'px';f.style.top=((H-vh)/2)+'px';}"
+            + "function onYouTubeIframeAPIReady(){ready=true;if(pending){var a=pending;pending=null;play.apply(null,a);}}"
+            // Subtitles in your language: its own track if the trailer has one, else YouTube's translation of the first.
+            + "function captions(subs,lang){try{if(!subs){player.unloadModule('captions');return;}player.loadModule('captions');"
+            + "setTimeout(function(){try{var t=player.getOption('captions','tracklist')||[],m=null;"
+            + "for(var i=0;i<t.length;i++)if(t[i].languageCode.indexOf(lang)==0)m=t[i];"
+            + "if(m)player.setOption('captions','track',{languageCode:m.languageCode});"
+            + "else if(t.length)player.setOption('captions','track',{languageCode:t[0].languageCode,translationLanguage:{languageCode:lang}});"
+            + "}catch(e){}},1500);}catch(e){}}"
+            + "function play(k,w,h,subs,lang){if(!ready){pending=[k,w,h,subs,lang];return;}fit();setTimeout(fit,300);setTimeout(fit,1200);"
             + "if(!player){player=new YT.Player('p',{videoId:k,playerVars:{autoplay:1,controls:0,disablekb:1,fs:0,rel:0,"
-            + "playsinline:1,iv_load_policy:3,cc_load_policy:0},events:{onReady:function(e){fit();e.target.unMute();"
-            + "e.target.setVolume(70);e.target.playVideo();},onStateChange:function(e){if(e.data==1)FreeMyTV.playing();"
-            + "if(e.data==0)FreeMyTV.ended();},onError:function(e){FreeMyTV.failed();}}});}"
-            + "else{player.loadVideoById(k);player.unMute();player.setVolume(70);}}"
-            + "function stop(){pending=null;if(player&&player.stopVideo)player.stopVideo();}"
-            + "window.addEventListener('resize',fit);</script></body></html>";
+            + "playsinline:1,iv_load_policy:3,hl:lang,cc_lang_pref:lang,cc_load_policy:subs?1:0},events:{"
+            + "onReady:function(e){fit();e.target.unMute();e.target.setVolume(70);captions(subs,lang);e.target.playVideo();},"
+            + "onStateChange:function(e){if(e.data==1){fit();FreeMyTV.playing();}if(e.data==0)FreeMyTV.ended();},"
+            + "onError:function(e){FreeMyTV.failed();}}});}"
+            + "else{player.loadVideoById(k);player.unMute();player.setVolume(70);captions(subs,lang);}}"
+            + "function stop(){pending=null;if(player&&player.stopVideo)player.stopVideo();}</script></body></html>";
 
     private final class Bridge {
         @JavascriptInterface public void playing() {
             handler.post(() -> {
                 if (trailerKey == null) return;
-                web.evaluateJavascript("fit()", null);
                 trailerOn = true;
                 trailerBox.animate().alpha(1).setDuration(400).start();
                 screen.invalidate();

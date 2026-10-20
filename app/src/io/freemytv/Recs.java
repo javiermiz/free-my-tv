@@ -811,7 +811,10 @@ final class Recs {
     private final ExecutorService trailerIo = Executors.newSingleThreadExecutor();
     private final Map<String, String> trailers = new HashMap<>();   // pick key → YouTube id ("" = none)
 
-    /** The pick's trailer on YouTube (TMDB videos: your language first, then English); `done` gets null if none. */
+    /**
+     * The pick's trailer on YouTube as "id|language" (TMDB videos: your language first, then English); `done` gets
+     * null if none.
+     */
     void trailer(final Pick p, final java.util.function.Consumer<String> done) {
         if (p == null || p.id == 0 || "app".equals(p.kind) || !hasKey(context)) {
             done.accept(null);
@@ -828,20 +831,22 @@ final class Recs {
         trailerIo.execute(() -> {
             String found = "";
             try {
-                for (String l : new String[] {lang(), "en-US"}) {
-                    JSONArray v = get("/" + p.kind + "/" + p.id + "/videos?language=" + l).getJSONArray("results");
-                    int best = -1;
-                    for (int i = 0; i < v.length(); i++) {
-                        JSONObject o = v.getJSONObject(i);
-                        if (!"YouTube".equals(o.optString("site"))) continue;
-                        int score = ("Trailer".equals(o.optString("type")) ? 2 : "Teaser".equals(o.optString("type")) ? 1 : 0)
-                                + (o.optBoolean("official") ? 1 : 0);
-                        if (score > best) {
-                            best = score;
-                            found = o.optString("key");
-                        }
+                // A Spanish trailer or teaser beats an English trailer; an English trailer beats a Spanish clip.
+                String mine = lang().substring(0, 2);
+                JSONArray v = get("/" + p.kind + "/" + p.id + "/videos?include_video_language=" + mine + ",en,null")
+                        .getJSONArray("results");
+                int best = -1;
+                for (int i = 0; i < v.length(); i++) {
+                    JSONObject o = v.getJSONObject(i);
+                    if (!"YouTube".equals(o.optString("site"))) continue;
+                    String type = o.optString("type");
+                    boolean native_ = mine.equals(o.optString("iso_639_1"));
+                    int score = ("Trailer".equals(type) ? 4 : "Teaser".equals(type) ? 2 : 0) + (native_ ? 3 : 0)
+                            + (native_ && REGION.equals(o.optString("iso_3166_1")) ? 1 : 0) + (o.optBoolean("official") ? 1 : 0);
+                    if (score > best) {
+                        best = score;
+                        found = o.optString("key") + "|" + (native_ ? mine : "en");
                     }
-                    if (!found.isEmpty()) break;
                 }
             } catch (Exception e) {
                 AppLog.w("trailer: " + e.getMessage());

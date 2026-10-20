@@ -44,7 +44,7 @@ import java.util.concurrent.Executors;
  */
 final class FlixView extends FrameLayout implements Recs.Listener, HomeData.Listener {
     private static final float MARGIN = 72, NAV_H = 120;
-    private static final float POSTER_W = 360, POSTER_H = 540, WIDE_W = 960, GAP = 20;   // the focused card: half the screen
+    private static final float POSTER_W = 420, POSTER_H = 630, WIDE_W = 1120, GAP = 22;   // posters 2:3; the focused card 16:9
     private static final float APP_W = 400, APP_H = 225;
     private static final float BILL_TOP = 132, BILL_H = 770;
     private static final long TRAILER_DELAY = 700, ROTATE_EVERY = 20_000;
@@ -440,7 +440,7 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
         if (slider != null) slider.cancel();
         Row r = focusRow >= 0 && focusRow < rows.size() ? rows.get(focusRow) : null;
         final float fromX = dx > 0 ? WIDE_W + GAP : dx < 0 ? -(POSTER_W + GAP) : 0;
-        final float fromY = dy * 520f;
+        final float fromY = dy * 600f;
         if (fromX != 0 || fromY != 0) {
             slider = android.animation.ValueAnimator.ofFloat(1, 0);
             slider.setDuration(220);
@@ -863,7 +863,7 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
         }
         if (focusRow + 1 < rows.size()) {
             Row next = rows.get(focusRow + 1);
-            float ny = below + 140 * k;
+            float ny = below + 120 * k;
             c.drawText(next.title, MARGIN * k, ny + 30 * k, rowPeek);
             drawPeekCards(c, next, ny + 52 * k);
         }

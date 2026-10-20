@@ -62,7 +62,7 @@ final class Recs {
     private static final String IMAGES = "https://image.tmdb.org/t/p/original";
     private static final long LIST_EVERY = 6 * 3600_000L;
     /** Bump when what is saved for each title changes (the saved list is discarded and fetched again). */
-    private static final int CACHE_VERSION = 9;
+    private static final int CACHE_VERSION = 10;
     private static final int MANHA = 0, TARDE = 1, NOITE = 2;
     static final String[] PERIOD_LABEL = {"PARA ESTA MANHÃ", "PARA ESTA TARDE", "PARA ESTA NOITE"};
     static final String[] PERIOD_LABEL_EN = {"THIS MORNING", "THIS AFTERNOON", "TONIGHT"};
@@ -556,11 +556,21 @@ final class Recs {
         List<Pick> list = new ArrayList<>();
         alternate(list, new java.util.HashSet<>(), mine, others, 24);
         if (list.isEmpty()) throw new IOException("TMDB returned no recommendations");
+        List<Row> newRows = rows;
         try {
-            rows = fetchRows(services);
+            newRows = fetchRows(services);
         } catch (Exception e) {
             AppLog.w("recommendation rows: " + e.getMessage());
         }
+        try {
+            List<Pick> all = new ArrayList<>(list);
+            for (Row r : newRows) all.addAll(r.picks);
+            AppLog.w("title links: " + addLinks(all) + " of " + all.size());
+            cache.edit().putString("rows", rowsJson(newRows).toString()).apply();
+        } catch (Exception e) {
+            AppLog.w("title links: " + e.getMessage());
+        }
+        rows = newRows;
         picks = list;
         period = p;
         listAt = System.currentTimeMillis();
@@ -632,8 +642,59 @@ final class Recs {
             }
             row(out, Ui.tr("Em alta no ", "Trending on ") + SERVICE_NAME.get(app), mixed);
         }
-        cache.edit().putString("rows", rowsJson(out).toString()).apply();
         return out;
+    }
+
+    /**
+     * Netflix and Disney+ open on the title itself with its id there, which Wikidata has (by TMDB id): one query for
+     * movies, one for shows. Without an id, the app opens on its home.
+     */
+    private static int addLinks(List<Pick> all) throws Exception {
+        int linked = 0;
+        for (String kind : new String[] {"movie", "tv"}) {
+            Map<String, List<Pick>> byId = new HashMap<>();
+            for (Pick p : all) {
+                if (!kind.equals(p.kind) || p.link != null || !("netflix".equals(p.app) || "disney".equals(p.app))) continue;
+                List<Pick> l = byId.get(String.valueOf(p.id));
+                if (l == null) byId.put(String.valueOf(p.id), l = new ArrayList<>());
+                l.add(p);
+            }
+            if (byId.isEmpty()) continue;
+            StringBuilder values = new StringBuilder();
+            for (String id : byId.keySet()) values.append(" \"").append(id).append('"');
+            String query = "SELECT ?tm ?nf ?dm ?ds WHERE { VALUES ?tm {" + values + " } ?i wdt:"
+                    + (kind.equals("movie") ? "P4947" : "P4983") + " ?tm . OPTIONAL { ?i wdt:P1874 ?nf } "
+                    + "OPTIONAL { ?i wdt:P7595 ?dm } OPTIONAL { ?i wdt:P7596 ?ds } }";
+            HttpURLConnection c = (HttpURLConnection) new URL("https://query.wikidata.org/sparql?format=json&query="
+                    + URLEncoder.encode(query, "UTF-8")).openConnection();
+            c.setConnectTimeout(8000);
+            c.setReadTimeout(15000);
+            c.setRequestProperty("User-Agent", "FreeMyTV/1.0 (home screen; github.com/simbasjungles/free-my-tv)");
+            JSONArray results;
+            try {
+                results = new JSONObject(read(c.getInputStream())).getJSONObject("results").getJSONArray("bindings");
+            } finally {
+                c.disconnect();
+            }
+            for (int i = 0; i < results.length(); i++) {
+                JSONObject b = results.getJSONObject(i);
+                List<Pick> l = byId.get(b.getJSONObject("tm").getString("value"));
+                if (l == null) continue;
+                String nf = value(b, "nf"), disney = value(b, kind.equals("movie") ? "dm" : "ds");
+                for (Pick p : l) {
+                    if ("netflix".equals(p.app) && nf != null) p.link = "https://www.netflix.com/title/" + nf;
+                    if ("disney".equals(p.app) && disney != null)
+                        p.link = "https://www.disneyplus.com/" + (kind.equals("movie") ? "movies" : "series") + "/x/" + disney;
+                    if (p.link != null) linked++;
+                }
+            }
+        }
+        return linked;
+    }
+
+    private static String value(JSONObject binding, String name) {
+        JSONObject v = binding.optJSONObject(name);
+        return v == null ? null : v.optString("value", null);
     }
 
     private List<Pick> discover(String kind, String filters) throws Exception {

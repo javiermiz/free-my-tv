@@ -44,10 +44,11 @@ import java.util.concurrent.Executors;
  */
 final class FlixView extends FrameLayout implements Recs.Listener, HomeData.Listener {
     private static final float MARGIN = 72, NAV_H = 120;
-    private static final float POSTER_W = 200, POSTER_H = 300, WIDE_W = 534, GAP = 16;
-    private static final float APP_W = 300, APP_H = 169, APP_WIDE_W = 360, APP_WIDE_H = 203;
-    private static final float BILL_TOP = 132, BILL_H = 640;
-    private static final long TRAILER_DELAY = 1500;
+    private static final float POSTER_W = 250, POSTER_H = 375, WIDE_W = 667, GAP = 18;
+    private static final float APP_W = 400, APP_H = 225;
+    private static final float BILL_TOP = 132, BILL_H = 620;
+    private static final long TRAILER_DELAY = 700, ROTATE_EVERY = 20_000;
+    private static final int FEATURED_MAX = 6;
     private static final int ACCENT = 0xFFF5A524;
     private static final String[] TAB_KIND = {null, "tv", "movie"};
     private static final ExecutorService LOADER = Executors.newSingleThreadExecutor();
@@ -77,12 +78,14 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
 
     private List<Row> rows = new ArrayList<>();
     private Recs.Pick featured;
+    private final List<Recs.Pick> featuredList = new ArrayList<>();
+    private int featuredIndex;
     private String signature = "";
     private List<HomeApps.Item> shelf = new ArrayList<>(), others = new ArrayList<>(), extras = new ArrayList<>();
 
     /** -2 = the menu on top, -1 = the featured title, 0.. = a row. */
     private int focusRow = -1, navIndex, tab;
-    private int[] focusCol = new int[0];
+    private int[] focusCol = new int[0], firstCol = new int[0];   // focused card per row; apps rows: first one shown
     private float slideX, slideY;
     private android.animation.ValueAnimator slider;
     private boolean okDown, okLong, moving;
@@ -92,6 +95,13 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
     private boolean trailerOn;
     private final RectF trailerRect = new RectF();
     private final Runnable trailerStart = this::fetchTrailer;
+    /** The featured title changes by itself while it has focus and no trailer is playing. */
+    private final Runnable rotate = new Runnable() {
+        @Override public void run() {
+            if (running && focusRow == -1 && !trailerOn) nextFeatured(1);
+            handler.postDelayed(this, ROTATE_EVERY);
+        }
+    };
 
     private final Paint fill = new Paint(Paint.ANTI_ALIAS_FLAG), bitmapPaint = new Paint(Paint.FILTER_BITMAP_FLAG);
     private final Paint ring = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -133,6 +143,7 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
         web.setWebChromeClient(new WebChromeClient());
         web.addJavascriptInterface(new Bridge(), "FreeMyTV");
         trailerBox.addView(web, new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT));
+        web.loadDataWithBaseURL("https://freemytv.io/", PLAYER, "text/html", "utf-8", null);
         trailerBox.setAlpha(0);
         addView(trailerBox, new LayoutParams(1, 1));
         screen = new Screen(a);
@@ -160,6 +171,7 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
         reloadApps();
         rebuild(false);
         handler.postDelayed(tick, 15_000);
+        handler.postDelayed(rotate, ROTATE_EVERY);
         scheduleTrailer();
         screen.invalidate();
     }
@@ -168,6 +180,7 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
         if (!running) return;
         running = false;
         handler.removeCallbacks(tick);
+        handler.removeCallbacks(rotate);
         recs.removeListener(this);
         data.removeListener(this);
         stopTrailer();
@@ -188,7 +201,9 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
             navIndex = 0;
             rebuild(true);
         }
-        for (int i = 0; i < focusCol.length; i++) focusCol[i] = 0;
+        for (int i = 0; i < focusCol.length; i++) focusCol[i] = firstCol[i] = 0;
+        featuredIndex = 0;
+        if (!featuredList.isEmpty()) featured = featuredList.get(0);
         slideX = slideY = 0;
         scheduleTrailer();
         screen.invalidate();
@@ -234,7 +249,11 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
         }
         List<Recs.Pick> mine = new ArrayList<>();
         for (Recs.Pick p : recs.now(kind)) if (!p.resuming && p.pkg != null) mine.add(p);
-        featured = mine.isEmpty() ? resume : mine.get(0);
+        featuredList.clear();
+        for (int i = 0; i < mine.size() && i < FEATURED_MAX; i++) featuredList.add(mine.get(i));
+        if (featuredList.isEmpty() && resume != null) featuredList.add(resume);
+        featuredIndex = featuredList.isEmpty() ? 0 : Math.min(featuredIndex, featuredList.size() - 1);
+        featured = featuredList.isEmpty() ? null : featuredList.get(featuredIndex);
         if (!mine.isEmpty()) {
             Row r = row(out, es("Para ti", "For you"));
             for (Recs.Pick p : mine) r.cards.add(card(p));
@@ -257,10 +276,14 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
         }
         if (!force && sig.toString().equals(signature)) return;
         signature = sig.toString();
-        int[] cols = new int[out.size()];
-        for (int i = 0; i < cols.length && i < focusCol.length; i++) cols[i] = Math.min(focusCol[i], out.get(i).cards.size() - 1);
+        int[] cols = new int[out.size()], firsts = new int[out.size()];
+        for (int i = 0; i < cols.length && i < focusCol.length; i++) {
+            cols[i] = Math.min(focusCol[i], out.get(i).cards.size() - 1);
+            firsts[i] = Math.min(firstCol[i], cols[i]);
+        }
         rows = out;
         focusCol = cols;
+        firstCol = firsts;
         if (focusRow >= rows.size()) focusRow = rows.size() - 1;
     }
 
@@ -353,6 +376,11 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
             return;
         }
         if (focusRow == -1) {
+            if (dx != 0) {
+                if (featuredList.size() < 2) return;
+                nextFeatured(dx);
+                return;
+            }
             if (dy < 0) {
                 focusRow = -2;
                 navIndex = tab;
@@ -371,7 +399,15 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
             int next = Math.max(0, Math.min(r.cards.size() - 1, focusCol[focusRow] + dx));
             if (next == focusCol[focusRow]) return;
             focusCol[focusRow] = next;
-            changed(dx, 0);
+            if (r.apps) {
+                // Apps don't slide: the ring moves, and the row scrolls only at its edges.
+                int visible = Math.max(1, (int) ((1920 - 2 * MARGIN + GAP) / (APP_W + GAP)));
+                if (next < firstCol[focusRow]) firstCol[focusRow] = next;
+                if (next > firstCol[focusRow] + visible - 1) firstCol[focusRow] = next - visible + 1;
+                changed(0, 0);
+            } else {
+                changed(dx, 0);
+            }
         } else if (dy < 0) {
             focusRow--;
             changed(0, -1);
@@ -384,17 +420,24 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
     private void selectTab(int index) {
         tab = index;
         navIndex = index;
-        for (int i = 0; i < focusCol.length; i++) focusCol[i] = 0;
+        for (int i = 0; i < focusCol.length; i++) focusCol[i] = firstCol[i] = 0;
+        featuredIndex = 0;
         rebuild(true);
+    }
+
+    private void nextFeatured(int dir) {
+        if (featuredList.isEmpty()) return;
+        featuredIndex = (featuredIndex + dir + featuredList.size()) % featuredList.size();
+        featured = featuredList.get(featuredIndex);
+        changed(0, 0);
     }
 
     /** Focus moved: slide the row (dx) or the rows (dy) into place, click, and line up the next trailer. */
     private void changed(int dx, int dy) {
         if (slider != null) slider.cancel();
         Row r = focusRow >= 0 && focusRow < rows.size() ? rows.get(focusRow) : null;
-        float step = r != null && r.apps ? APP_W + GAP : POSTER_W + GAP;
-        final float fromX = dx > 0 ? (r != null && r.apps ? APP_WIDE_W : WIDE_W) + GAP : dx < 0 ? -step : 0;
-        final float fromY = dy * 300f;
+        final float fromX = dx > 0 ? WIDE_W + GAP : dx < 0 ? -(POSTER_W + GAP) : 0;
+        final float fromY = dy * 340f;
         if (fromX != 0 || fromY != 0) {
             slider = android.animation.ValueAnimator.ofFloat(1, 0);
             slider.setDuration(220);
@@ -414,7 +457,7 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
 
     private void activate() {
         HomeApps.Item it;
-        RectF r = new RectF(MARGIN * k, 190 * k, (MARGIN + WIDE_W) * k, (190 + POSTER_H) * k);
+        RectF r = focusRow >= 0 ? wideCardRect(new RectF()) : billboardRect(new RectF());
         if (focusRow == -2) {
             focusRow = -1;
             changed(0, 0);
@@ -520,40 +563,46 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
             trailerKey = key;
             RectF r = focusRow == -1 ? billboardRect(new RectF()) : wideCardRect(new RectF());
             trailerRect.set(r);
-            // The player is a bit taller than the card: YouTube's title strip and logo fall outside it.
-            float extra = r.height() * 0.18f;
             LayoutParams lp = new LayoutParams(Math.round(r.width()), Math.round(r.height()));
             lp.leftMargin = Math.round(r.left);
             lp.topMargin = Math.round(r.top);
             trailerBox.setLayoutParams(lp);
-            LayoutParams wl = new LayoutParams(Math.round(r.width() * 1.18f), Math.round(r.height() + 2 * extra));
-            wl.leftMargin = -Math.round(r.width() * 0.09f);
-            wl.topMargin = -Math.round(extra);
-            web.setLayoutParams(wl);
-            web.loadDataWithBaseURL("https://freemytv.io/", player(key), "text/html", "utf-8", null);
+            web.evaluateJavascript("play('" + key + "')", null);
         });
+        // The next card's trailer, looked up ahead so it starts sooner.
+        Card next = focusRow >= 0 && focusCol[focusRow] + 1 < rows.get(focusRow).cards.size()
+                ? rows.get(focusRow).cards.get(focusCol[focusRow] + 1) : null;
+        if (next != null && next.pick != null) recs.trailer(next.pick, key -> {});
     }
 
     private void stopTrailer() {
         handler.removeCallbacks(trailerStart);
-        if (trailerKey != null) web.loadUrl("about:blank");
+        if (trailerKey != null) web.evaluateJavascript("stop()", null);
         trailerKey = null;
         trailerOn = false;
         trailerBox.setAlpha(0);
         screen.invalidate();
     }
 
-    private static String player(String key) {
-        return "<!doctype html><html><head><meta name=viewport content='width=device-width,initial-scale=1'>"
-                + "<style>html,body,#p{margin:0;width:100%;height:100%;background:#000;overflow:hidden}</style></head><body>"
-                + "<div id=p></div><script src='https://www.youtube.com/iframe_api'></script><script>"
-                + "function onYouTubeIframeAPIReady(){new YT.Player('p',{width:'100%',height:'100%',videoId:'" + key + "',"
-                + "playerVars:{autoplay:1,mute:1,controls:0,disablekb:1,fs:0,rel:0,playsinline:1,iv_load_policy:3,"
-                + "cc_load_policy:0,loop:1,playlist:'" + key + "'},events:{"
-                + "onReady:function(e){e.target.mute();e.target.playVideo();},"
-                + "onStateChange:function(e){if(e.data==1)FreeMyTV.playing();},"
-                + "onError:function(e){FreeMyTV.failed();}}});}</script></body></html>";
-    }
+    /**
+     * One page with YouTube's player, loaded once and kept: each trailer only swaps the video. The video covers the
+     * card (cropped like a photo, a little zoomed so YouTube's title strip and logo fall outside), with sound.
+     */
+    private static final String PLAYER = "<!doctype html><html><head><meta name=viewport content='width=device-width,initial-scale=1'>"
+            + "<style>html,body{margin:0;width:100%;height:100%;background:#000;overflow:hidden}#p{position:absolute;border:0}</style>"
+            + "</head><body><div id=p></div><script src='https://www.youtube.com/iframe_api'></script><script>"
+            + "var player=null,ready=false,pending=null;"
+            + "function fit(){var w=innerWidth,h=innerHeight,vw=Math.max(w,h*16/9)*1.2,vh=vw*9/16,f=document.getElementById('p');"
+            + "f.style.width=vw+'px';f.style.height=vh+'px';f.style.left=((w-vw)/2)+'px';f.style.top=((h-vh)/2)+'px';}"
+            + "function onYouTubeIframeAPIReady(){ready=true;if(pending){var k=pending;pending=null;play(k);}}"
+            + "function play(k){if(!ready){pending=k;return;}fit();"
+            + "if(!player){player=new YT.Player('p',{videoId:k,playerVars:{autoplay:1,controls:0,disablekb:1,fs:0,rel:0,"
+            + "playsinline:1,iv_load_policy:3,cc_load_policy:0},events:{onReady:function(e){fit();e.target.unMute();"
+            + "e.target.setVolume(70);e.target.playVideo();},onStateChange:function(e){if(e.data==1)FreeMyTV.playing();"
+            + "if(e.data==0)FreeMyTV.ended();},onError:function(e){FreeMyTV.failed();}}});}"
+            + "else{player.loadVideoById(k);player.unMute();player.setVolume(70);}}"
+            + "function stop(){pending=null;if(player&&player.stopVideo)player.stopVideo();}"
+            + "window.addEventListener('resize',fit);</script></body></html>";
 
     private final class Bridge {
         @JavascriptInterface public void playing() {
@@ -568,6 +617,14 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
         @JavascriptInterface public void failed() {
             handler.post(FlixView.this::stopTrailer);
         }
+
+        /** The trailer ended: the photo comes back; on the featured title, the next one. */
+        @JavascriptInterface public void ended() {
+            handler.post(() -> {
+                stopTrailer();
+                if (focusRow == -1) nextFeatured(1);
+            });
+        }
     }
 
     // MARK: - Layout
@@ -580,7 +637,12 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
     private RectF wideCardRect(RectF out) {
         Row r = rows.get(focusRow);
         float top = 190 * k;
-        out.set(MARGIN * k, top, (MARGIN + (r.apps ? APP_WIDE_W : WIDE_W)) * k, top + (r.apps ? APP_WIDE_H : POSTER_H) * k);
+        if (r.apps) {
+            float x = (MARGIN + (focusCol[focusRow] - firstCol[focusRow]) * (APP_W + GAP)) * k;
+            out.set(x, top, x + APP_W * k, top + APP_H * k);
+        } else {
+            out.set(MARGIN * k, top, (MARGIN + WIDE_W) * k, top + POSTER_H * k);
+        }
         return out;
     }
 
@@ -710,6 +772,13 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
             fill.setColor(ACCENT);
             c.drawRect(x, y - 20 * k, x + 6 * k, y + 2 * k, fill);
             c.drawText("tv".equals(p.kind) ? es("SERIE", "SERIES") : es("PELÍCULA", "FILM"), x + 18 * k, y, kindLabel);
+            // Which of the featured titles this is (← → or wait for the next).
+            int n = featuredList.size();
+            float dot = 10 * k, dx = b.right - 56 * k - (n - 1) * 22 * k;
+            for (int i = 0; n > 1 && i < n; i++) {
+                fill.setColor(i == featuredIndex ? 0xFFFFFFFF : 0x66FFFFFF);
+                c.drawCircle(dx + i * 22 * k, b.bottom - 48 * k, i == featuredIndex ? dot * 0.7f : dot * 0.5f, fill);
+            }
         }
         if (!rows.isEmpty()) {
             Row first = rows.get(0);
@@ -729,12 +798,12 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
         float titleY = 168 * k, top = 190 * k;
         c.drawText(r.title, MARGIN * k, titleY, rowTitle);
         int col = focusCol[focusRow];
-        float x = (MARGIN + slideX) * k;
-        for (int i = col; i < r.cards.size() && x < w; i++) {
+        float x = (MARGIN + (r.apps ? 0 : slideX)) * k;
+        for (int i = r.apps ? firstCol[focusRow] : col; i < r.cards.size() && x < w; i++) {
             boolean on = i == col;
             Card card = r.cards.get(i);
-            float cw = (r.apps ? (on ? APP_WIDE_W : APP_W) : (on ? WIDE_W : POSTER_W)) * k;
-            float ch = (r.apps ? (on ? APP_WIDE_H : APP_H) : POSTER_H) * k;
+            float cw = (r.apps ? APP_W : (on ? WIDE_W : POSTER_W)) * k;
+            float ch = (r.apps ? APP_H : POSTER_H) * k;
             r1.set(x, top, x + cw, top + ch);
             if (card.pick != null) drawPickCard(c, card.pick, r1, on);
             else drawAppCard(c, card.app, r1, on);
@@ -749,7 +818,7 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
             }
             x += cw + GAP * k;
         }
-        float below = top + (r.apps ? APP_WIDE_H : POSTER_H) * k + 52 * k;
+        float below = top + (r.apps ? APP_H : POSTER_H) * k + 52 * k;
         Card f = focused();
         if (f != null && f.pick != null) {
             float y = drawBlockDown(c, f.pick.meta, meta, MARGIN * k, below, 1000 * k, 1) + 10 * k;
@@ -759,7 +828,7 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
         }
         if (focusRow + 1 < rows.size()) {
             Row next = rows.get(focusRow + 1);
-            float ny = below + 150 * k;
+            float ny = below + 140 * k;
             c.drawText(next.title, MARGIN * k, ny + 30 * k, rowPeek);
             drawPeekCards(c, next, ny + 52 * k);
         }

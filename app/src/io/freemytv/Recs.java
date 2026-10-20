@@ -63,7 +63,7 @@ final class Recs {
     private static final String IMAGES = "https://image.tmdb.org/t/p/original";
     private static final long LIST_EVERY = 6 * 3600_000L;
     /** Bump when what is saved for each title changes (the saved list is discarded and fetched again). */
-    private static final int CACHE_VERSION = 20;
+    private static final int CACHE_VERSION = 21;
     private static final int MANHA = 0, TARDE = 1, NOITE = 2;
     static final String[] PERIOD_LABEL = {"PARA ESTA MANHÃ", "PARA ESTA TARDE", "PARA ESTA NOITE"};
     static final String[] PERIOD_LABEL_EN = {"THIS MORNING", "THIS AFTERNOON", "TONIGHT"};
@@ -867,61 +867,49 @@ final class Recs {
     }
 
     /**
-     * The middle of the 2:3 slice of a wide picture to keep: around the faces (the biggest one when they don't all
-     * fit), else where it has the most detail (the subject is sharp, the background soft), a little toward the middle.
-     * Also how well it holds as a vertical card: 3 all faces in the slice, 1.5 only the biggest, else how much more
-     * detail the slice has than its share (1 = spread evenly, nothing to center on).
+     * The middle of the 2:3 slice of a wide picture to keep, and how well it holds as a vertical card. Where its
+     * detail is (the subject is sharp, the background soft), seen small (96 px wide) so people and objects count
+     * more than fine texture like a building's windows; each spot weighs the detail around it (a bell as wide as the
+     * slice), so the subject lands in the middle; a little toward the picture's middle. Fit: how much more detail
+     * the slice has than its share (1 = spread evenly, nothing to center on).
      */
     private static float[] framing(Bitmap b) {
-        int w = 320, h = Math.max(2, Math.round(320f * b.getHeight() / b.getWidth())) & ~1;
-        Bitmap small = Bitmap.createScaledBitmap(b, w, h, true);
-        if (small.getConfig() != Bitmap.Config.RGB_565) small = small.copy(Bitmap.Config.RGB_565, false);
-        float slice = h * 2f / 3 / w;   // the vertical card's share of the width
-        try {
-            android.media.FaceDetector.Face[] faces = new android.media.FaceDetector.Face[8];
-            int n = new android.media.FaceDetector(w, h, faces.length).findFaces(small, faces);
-            float lo = 1, hi = 0, big = 0, bigX = 0;
-            android.graphics.PointF mid = new android.graphics.PointF();
-            for (int i = 0; i < n; i++) {
-                if (faces[i].confidence() < 0.4f) continue;
-                faces[i].getMidPoint(mid);
-                float x = mid.x / w, r = faces[i].eyesDistance() / w;
-                lo = Math.min(lo, x - r);
-                hi = Math.max(hi, x + r);
-                if (r > big) {
-                    big = r;
-                    bigX = x;
-                }
-            }
-            if (big > 0) return hi - lo <= slice ? new float[] {(lo + hi) / 2, 3} : new float[] {bigX, 1.5f};
-        } catch (Exception ignored) {
-            // no faces: by detail
-        }
+        int w = 96, h = Math.max(2, Math.round(96f * b.getHeight() / b.getWidth()));
+        Bitmap half = Bitmap.createScaledBitmap(b, w * 2, h * 2, true);   // two steps: smoother than one
+        Bitmap small = Bitmap.createScaledBitmap(half, w, h, true);
         int[] px = new int[w * h];
         small.getPixels(px, 0, w, 0, 0, w, h);
+        if (half != b) half.recycle();
+        if (small != b) small.recycle();
         float[] col = new float[w];
+        float total = 0;
         for (int y = 1; y < h; y++) {
             for (int x = 1; x < w; x++) {
-                int a = px[y * w + x], l = px[y * w + x - 1], u = px[(y - 1) * w + x];
-                col[x] += Math.abs(luma(a) - luma(l)) + Math.abs(luma(a) - luma(u));
+                int a = px[y * w + x];
+                float d = Math.abs(luma(a) - luma(px[y * w + x - 1])) + Math.abs(luma(a) - luma(px[(y - 1) * w + x]));
+                col[x] += d;
+                total += d;
             }
         }
-        int win = Math.max(1, Math.round(slice * w)), bestAt = (w - win) / 2;
-        float best = -1, bestRaw = 0, sum = 0, total = 0;
-        for (int x = 0; x < w; x++) {
-            total += col[x];
-            sum += col[x];
-            if (x >= win) sum -= col[x - win];
-            if (x < win - 1) continue;
-            int start = x - win + 1;
-            float centered = 1 - 0.3f * Math.abs((start + win / 2f) / w - 0.5f) * 2;   // up to 30% less at the edges
-            if (sum * centered > best) {
-                best = sum * centered;
-                bestRaw = sum;
-                bestAt = start;
+        float slice = h * 2f / 3 / w, win = slice * w, sigma = win / 2.5f;
+        float[] bell = new float[w];
+        for (int d = 0; d < w; d++) bell[d] = (float) Math.exp(-(d / sigma) * (d / sigma) / 2);
+        int center = w / 2;
+        float best = -1;
+        for (int c = 0; c < w; c++) {
+            float sum = 0;
+            for (int x = 0; x < w; x++) sum += col[x] * bell[Math.abs(x - c)];
+            sum *= 1 - 0.3f * Math.abs((c + 0.5f) / w - 0.5f) * 2;   // up to 30% less at the edges
+            if (sum > best) {
+                best = sum;
+                center = c;
             }
         }
-        return new float[] {(bestAt + win / 2f) / w, total > 0 ? bestRaw / total / slice : 1};
+        float x = (center + 0.5f) / w;
+        int lo = Math.round(Math.max(0, Math.min(w - win, x * w - win / 2)));
+        float in = 0;
+        for (int i = lo; i < Math.min(w, lo + Math.round(win)); i++) in += col[i];
+        return new float[] {x, total > 0 ? in / total / slice : 1};
     }
 
     private static int luma(int c) {

@@ -62,7 +62,7 @@ final class Recs {
     private static final String IMAGES = "https://image.tmdb.org/t/p/original";
     private static final long LIST_EVERY = 6 * 3600_000L;
     /** Bump when what is saved for each title changes (the saved list is discarded and fetched again). */
-    private static final int CACHE_VERSION = 15;
+    private static final int CACHE_VERSION = 16;
     private static final int MANHA = 0, TARDE = 1, NOITE = 2;
     static final String[] PERIOD_LABEL = {"PARA ESTA MANHÃ", "PARA ESTA TARDE", "PARA ESTA NOITE"};
     static final String[] PERIOD_LABEL_EN = {"THIS MORNING", "THIS AFTERNOON", "TONIGHT"};
@@ -81,7 +81,7 @@ final class Recs {
         {"apple tv", "appletv", "com.apple.atve.androidtv.appletv"},
     };
     /** Which app a pick opens when it's on several: first in this list wins, then the rest in SERVICES order. */
-    private static final List<String> PRIORITY = Arrays.asList("netflix", "disney", "stremio", "prime");
+    private static final List<String> PRIORITY = Arrays.asList("stremio", "netflix", "disney", "prime");   // Stremio first: it opens on the episode
     /** Stremio has every title (through its add-ons): it opens straight to the title's page, by its IMDb id. */
     private static final String STREMIO = "com.stremio.one";
     private static final Map<String, String> SERVICE_NAME = new HashMap<>();
@@ -684,7 +684,7 @@ final class Recs {
         for (String kind : new String[] {"movie", "tv"}) {
             Map<String, List<Pick>> byId = new HashMap<>();
             for (Pick p : all) {
-                if (!kind.equals(p.kind) || p.link != null || p.pkg == null) continue;
+                if (!kind.equals(p.kind) || p.link != null || (p.pkg == null && !stremio)) continue;
                 List<Pick> l = byId.get(String.valueOf(p.id));
                 if (l == null) byId.put(String.valueOf(p.id), l = new ArrayList<>());
                 l.add(p);
@@ -719,10 +719,10 @@ final class Recs {
                     if (p.imdb == null && imdb != null && imdb.startsWith("tt")) p.imdb = imdb;
                 }
             }
-            // An app that can't open on the title (Prime, or no id for it): Stremio, which opens right on it.
+            // Stremio first (it opens on the episode); the service's own app when Stremio can't find it.
             for (List<Pick> l : byId.values()) {
                 for (Pick p : l) {
-                    if (p.link == null && stremio && p.imdb != null) toStremio(p);
+                    if (stremio && p.imdb != null) toStremio(p);
                     if (p.link != null) linked++;
                 }
             }
@@ -765,7 +765,9 @@ final class Recs {
         p.app = "stremio";
         p.pkg = STREMIO;
         p.link = "stremio:///detail/" + (p.kind.equals("tv") ? "series" : "movie") + "/" + p.imdb;
-        if (old != null && p.meta != null && p.meta.endsWith(old)) p.meta = p.meta.substring(0, p.meta.length() - old.length()) + "Stremio";
+        if (p.meta == null) p.meta = "";
+        if (old != null && p.meta.endsWith(old)) p.meta = p.meta.substring(0, p.meta.length() - old.length()) + "Stremio";
+        else if (!p.meta.endsWith("Stremio")) p.meta += (p.meta.isEmpty() ? "" : " · ") + "Stremio";
     }
 
     private static String value(JSONObject binding, String name) {

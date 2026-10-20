@@ -924,7 +924,8 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
         Card f = focused();
         if (f != null && f.pick != null) {
             float y = below;
-            if (namedApart(f.pick)) y = drawBlockDown(c, f.pick.title, nameUnder, MARGIN * k, y, 1000 * k, 1) + 6 * k;
+            // Always its name first (same height for every title, so nothing moves into the next row).
+            y = drawBlockDown(c, f.pick.title, nameUnder, MARGIN * k, y, 1000 * k, 1) + 6 * k;
             y = drawBlockDown(c, info(f.pick), meta, MARGIN * k, y, 1000 * k, 1) + 10 * k;
             drawBlockDown(c, f.pick.overview, overview, MARGIN * k, y, 940 * k, 2);
         } else if (f != null) {
@@ -932,7 +933,7 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
         }
         if (focusRow + 1 < rows.size()) {
             Row next = rows.get(focusRow + 1);
-            float ny = below + 120 * k;
+            float ny = below + 150 * k;   // under the name, info and two lines of overview
             c.drawText(next.title, MARGIN * k, ny + 30 * k, rowPeek);
             drawPeekCards(c, next, ny + 52 * k);
         }

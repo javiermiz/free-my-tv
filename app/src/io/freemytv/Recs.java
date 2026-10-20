@@ -62,7 +62,7 @@ final class Recs {
     private static final String IMAGES = "https://image.tmdb.org/t/p/original";
     private static final long LIST_EVERY = 6 * 3600_000L;
     /** Bump when what is saved for each title changes (the saved list is discarded and fetched again). */
-    private static final int CACHE_VERSION = 16;
+    private static final int CACHE_VERSION = 18;
     private static final int MANHA = 0, TARDE = 1, NOITE = 2;
     static final String[] PERIOD_LABEL = {"PARA ESTA MANHÃ", "PARA ESTA TARDE", "PARA ESTA NOITE"};
     static final String[] PERIOD_LABEL_EN = {"THIS MORNING", "THIS AFTERNOON", "TONIGHT"};
@@ -575,7 +575,13 @@ final class Recs {
         try {
             List<Pick> all = new ArrayList<>(list);
             for (Row r : newRows) all.addAll(r.picks);
-            AppLog.w("title links: " + addLinks(all) + " of " + all.size());
+            addLinks(all);
+            int linked = 0, stremio = 0;
+            for (Pick q : all) {
+                if (q.link != null) linked++;
+                if ("stremio".equals(q.app)) stremio++;
+            }
+            AppLog.w("title links: " + linked + " of " + all.size() + " (" + stremio + " in Stremio)");
             cache.edit().putString("rows", rowsJson(newRows).toString()).apply();
         } catch (Exception e) {
             AppLog.w("title links: " + e.getMessage());
@@ -1134,9 +1140,9 @@ final class Recs {
     private void fetchDetails(Pick p) throws Exception {
         JSONObject o = get("/" + p.kind + "/" + p.id
                 + "?language=" + lang() + "&append_to_response=watch/providers,images,external_ids&include_image_language=null,pt,en");
-        String best = bestBackdrop(o.optJSONObject("images"));
-        if (best != null) p.backdrop = best;
         if (p.poster == null) p.poster = path(o, "poster_path");
+        String best = likePoster(p.poster, bestBackdrops(o.optJSONObject("images")));
+        if (best != null) p.backdrop = best;
         if (p.overview == null || p.overview.isEmpty()) p.overview = o.optString("overview", "");
         List<String> parts = new ArrayList<>();
         JSONArray genres = o.optJSONArray("genres");
@@ -1212,22 +1218,77 @@ final class Recs {
      * The title's best backdrop: no text written over it (our own text goes on top of it), at the highest resolution
      * (up to 3840, TMDB's 4K) and, on a tie, the highest rated.
      */
-    private static String bestBackdrop(JSONObject images) {
+    private static List<String> bestBackdrops(JSONObject images) {
         JSONArray list = images == null ? null : images.optJSONArray("backdrops");
-        String best = null;
-        double bestScore = -1;
+        List<Object[]> scored = new ArrayList<>();
         for (int i = 0; list != null && i < list.length(); i++) {
             JSONObject b = list.optJSONObject(i);
             if (b == null || b.optString("file_path", "").isEmpty()) continue;
             boolean textless = b.isNull("iso_639_1");
             int width = b.optInt("width");
             double score = (textless ? 1e7 : 0) + Math.min(width, 3840) * 100 + b.optDouble("vote_average", 0);
+            scored.add(new Object[] {score, b.optString("file_path")});
+        }
+        java.util.Collections.sort(scored, (a, b) -> Double.compare((double) b[0], (double) a[0]));
+        List<String> out = new ArrayList<>();
+        // The ones as good as the best: textless if it is, and at least HD (scores: 1e7 textless + width × 100).
+        double top = scored.isEmpty() ? 0 : (double) scored.get(0)[0];
+        for (Object[] o : scored)
+            if (out.isEmpty() || ((double) o[0] >= 1e7) == (top >= 1e7) && (double) o[0] % 1e7 >= 1280 * 100) out.add((String) o[1]);
+        return out;
+    }
+
+    /**
+     * Of the best few backdrops (textless, sharp), the one whose colors look most like the poster's, so the card
+     * looks like the same picture when it widens; the best one when the poster can't be read.
+     */
+    private static String likePoster(String poster, List<String> backdrops) {
+        if (backdrops.isEmpty()) return null;
+        List<String> some = backdrops.subList(0, Math.min(4, backdrops.size()));
+        if (poster == null || some.size() < 2) return some.get(0);
+        float[] want = colors(IMAGES_SMALL + "w92" + poster);
+        if (want == null) return some.get(0);
+        String best = some.get(0);
+        float bestScore = -1;
+        for (String b : some) {
+            float[] have = colors(IMAGES_SMALL + "w300" + b);
+            if (have == null) continue;
+            float score = 0;
+            for (int i = 0; i < want.length; i++) score += Math.min(want[i], have[i]);
             if (score > bestScore) {
                 bestScore = score;
-                best = b.optString("file_path");
+                best = b;
             }
         }
         return best;
+    }
+
+    private static final String IMAGES_SMALL = "https://image.tmdb.org/t/p/";
+
+    /** A small picture's colors: how much of it falls in each of 64 color boxes (4 levels of red, green, blue). */
+    private static float[] colors(String url) {
+        try {
+            HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
+            c.setConnectTimeout(8000);
+            c.setReadTimeout(8000);
+            Bitmap b;
+            try {
+                b = android.graphics.BitmapFactory.decodeStream(c.getInputStream());
+            } finally {
+                c.disconnect();
+            }
+            if (b == null) return null;
+            Bitmap small = Bitmap.createScaledBitmap(b, 24, 24, true);
+            float[] h = new float[64];
+            int[] px = new int[24 * 24];
+            small.getPixels(px, 0, 24, 0, 0, 24, 24);
+            for (int c2 : px) h[(((c2 >> 16) & 0xFF) >> 6) * 16 + (((c2 >> 8) & 0xFF) >> 6) * 4 + ((c2 & 0xFF) >> 6)] += 1f / px.length;
+            b.recycle();
+            if (small != b) small.recycle();
+            return h;
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     /** The service's row, preferring the one whose app is installed (one service can have several apps). */

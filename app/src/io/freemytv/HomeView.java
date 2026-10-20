@@ -112,7 +112,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
 
     // At the top: tabs (0 to 2) and icon-only buttons (3 to 5); the three cards
     private int tab, topIndex, cardIndex;
-    /** The tab's first pick on screen: the three cards are a window over up to Recs.PER_TAB picks. */
+    /** The focused pick, always on the big card; the two small ones show the next ones (wrapping around). */
     private int cardPage;
     private List<Recs.Pick> cards = new ArrayList<>();
     private final Spring[] topFocus = new Spring[6];
@@ -1905,7 +1905,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             it = lightButtons.get(topIndex - 3);
             r = topRects[topIndex];
         } else if (zone == Z_CARDS) {
-            Recs.Pick p = cardPage + cardIndex < cards.size() ? cards.get(cardPage + cardIndex) : null;
+            Recs.Pick p = cardAt(cardIndex);
             if (p == null || p.pkg == null) return;
             it = HomeApps.app(p.pkg, Recs.serviceName(p));
             it.link = p.link;
@@ -1966,8 +1966,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         List<Recs.Pick> list = recs.now(TAB_KIND[tab]);
         if (!samePicks(list, cards)) {
             cards = list;
-            cardPage = Math.min(cardPage, Math.max(0, list.size() - 3));
-            cardIndex = Math.min(cardIndex, Math.max(0, list.size() - cardPage - 1));
+            cardPage = list.isEmpty() ? 0 : cardPage % list.size();
+            cardIndex = 0;
             if (zone == Z_CARDS && list.isEmpty()) {
                 zone = Z_SHELF;
                 retarget(false);
@@ -1978,10 +1978,17 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             List<Recs.Pick> l = recs.now(kind);
             for (int i = 0; i < Math.min(3, l.size()); i++) recs.backdrop(l.get(i));
         }
-        for (int i = cardPage; i < Math.min(cardPage + 4, cards.size()); i++) recs.backdrop(cards.get(i));
+        for (int i = 0; i < 4; i++) recs.backdrop(cardAt(i));   // on screen plus the next one
+        if (cards.size() > 4) recs.backdrop(cards.get((cardPage + cards.size() - 1) % cards.size()));   // and the previous
         Backdrop b = cards.isEmpty() ? null : recs.backdrop(cards.get(cardPage));
         if (cards.isEmpty() || b != null) showBackdrop(b);
         heroDirty = true;
+    }
+
+    /** The pick on card `slot` (0 = the big one), or null when the tab has fewer picks than cards. */
+    private Recs.Pick cardAt(int slot) {
+        int n = cards.size();
+        return slot < n ? cards.get((cardPage + slot) % n) : null;
     }
 
     private void selectTab(int index) {
@@ -2072,7 +2079,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
      */
     private void drawLightCard(Canvas c, int i) {
         RectF base = cardRects[i];
-        Recs.Pick p = cardPage + i < cards.size() ? cards.get(cardPage + i) : null;
+        Recs.Pick p = cardAt(i);
         float v = cardFocus[i].value, f = Ui.clamp(v), s = 1 + 0.05f * v;
         float bw = base.width(), bh = base.height(), r0 = 18 * k;
         float cx = base.centerX(), cy = base.centerY() - 6 * k * v;
@@ -2161,20 +2168,15 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                     topIndex = tab;
                 } else {
                     zone = Z_CARDS;
-                    cardIndex = nearest(cardRects, cards.size() - cardPage, tileRects[shelfIndex].centerX());
+                    cardIndex = 0;
                 }
                 break;
             case Z_CARDS:
                 if (dx != 0) {
-                    int pick = cardPage + cardIndex + dx;
-                    if (pick < 0 || pick >= cards.size()) return true;
-                    // Past the last card (or before the first) the window slides by one.
-                    if (cardIndex + dx > 2 || cardIndex + dx < 0) {
-                        cardPage += dx;
-                        updateCards();
-                    } else {
-                        cardIndex += dx;
-                    }
+                    if (cards.size() < 2) return true;
+                    // The row slides: the next pick takes the big card.
+                    cardPage = (cardPage + dx + cards.size()) % cards.size();
+                    updateCards();
                 } else if (dy < 0) {
                     zone = Z_TOP;
                     topIndex = tab;     // as on Apple TV: moving up to the tabs focuses the selected tab
@@ -2194,7 +2196,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                         zone = Z_SHELF;
                     } else {
                         zone = Z_CARDS;
-                        cardIndex = nearest(cardRects, cards.size() - cardPage, topRects[topIndex].centerX());
+                        cardIndex = 0;
                     }
                 } else {
                     return true;

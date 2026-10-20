@@ -984,11 +984,11 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
             for (int x = 0; x < logo.getWidth(); x += Math.max(1, logo.getWidth() / 48)) {
                 int px = logo.getPixel(x, y);
                 if ((px >>> 24) < 128) continue;
-                sum += (((px >> 16) & 0xFF) * 3 + ((px >> 8) & 0xFF) * 6 + (px & 0xFF)) / 10;
+                sum += Math.max((px >> 16) & 0xFF, Math.max((px >> 8) & 0xFF, px & 0xFF));   // brightness: red counts as bright
                 n++;
             }
         }
-        d = n > 0 && sum / n < 70;
+        d = n > 0 && sum / n < 60;
         darkLogos.put(logo, d);
         return d;
     }

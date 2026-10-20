@@ -63,7 +63,7 @@ final class Recs {
     private static final String IMAGES = "https://image.tmdb.org/t/p/original";
     private static final long LIST_EVERY = 6 * 3600_000L;
     /** Bump when what is saved for each title changes (the saved list is discarded and fetched again). */
-    private static final int CACHE_VERSION = 19;
+    private static final int CACHE_VERSION = 20;
     private static final int MANHA = 0, TARDE = 1, NOITE = 2;
     static final String[] PERIOD_LABEL = {"PARA ESTA MANHÃ", "PARA ESTA TARDE", "PARA ESTA NOITE"};
     static final String[] PERIOD_LABEL_EN = {"THIS MORNING", "THIS AFTERNOON", "TONIGHT"};
@@ -587,7 +587,7 @@ final class Recs {
             List<Pick> all = new ArrayList<>(list);
             for (Row r : newRows) all.addAll(r.picks);
             addLinks(all);
-            addLogos(all);
+            addImages(all);
             int linked = 0, stremio = 0;
             for (Pick q : all) {
                 if (q.link != null) linked++;
@@ -869,8 +869,10 @@ final class Recs {
     /**
      * The middle of the 2:3 slice of a wide picture to keep: around the faces (the biggest one when they don't all
      * fit), else where it has the most detail (the subject is sharp, the background soft), a little toward the middle.
+     * Also how well it holds as a vertical card: 3 all faces in the slice, 1.5 only the biggest, else how much more
+     * detail the slice has than its share (1 = spread evenly, nothing to center on).
      */
-    private static float focusOf(Bitmap b) {
+    private static float[] framing(Bitmap b) {
         int w = 320, h = Math.max(2, Math.round(320f * b.getHeight() / b.getWidth())) & ~1;
         Bitmap small = Bitmap.createScaledBitmap(b, w, h, true);
         if (small.getConfig() != Bitmap.Config.RGB_565) small = small.copy(Bitmap.Config.RGB_565, false);
@@ -891,7 +893,7 @@ final class Recs {
                     bigX = x;
                 }
             }
-            if (big > 0) return hi - lo <= slice ? (lo + hi) / 2 : bigX;
+            if (big > 0) return hi - lo <= slice ? new float[] {(lo + hi) / 2, 3} : new float[] {bigX, 1.5f};
         } catch (Exception ignored) {
             // no faces: by detail
         }
@@ -905,8 +907,9 @@ final class Recs {
             }
         }
         int win = Math.max(1, Math.round(slice * w)), bestAt = (w - win) / 2;
-        float best = -1, sum = 0;
+        float best = -1, bestRaw = 0, sum = 0, total = 0;
         for (int x = 0; x < w; x++) {
+            total += col[x];
             sum += col[x];
             if (x >= win) sum -= col[x - win];
             if (x < win - 1) continue;
@@ -914,10 +917,11 @@ final class Recs {
             float centered = 1 - 0.3f * Math.abs((start + win / 2f) / w - 0.5f) * 2;   // up to 30% less at the edges
             if (sum * centered > best) {
                 best = sum * centered;
+                bestRaw = sum;
                 bestAt = start;
             }
         }
-        return (bestAt + win / 2f) / w;
+        return new float[] {(bestAt + win / 2f) / w, total > 0 ? bestRaw / total / slice : 1};
     }
 
     private static int luma(int c) {
@@ -957,7 +961,7 @@ final class Recs {
                 Bitmap b = BitmapFactory.decodeFile(f.getPath(), o);
                 if (b == null) throw new IOException("unreadable image");
                 if (!imagePath.endsWith(".png")) {
-                    float x = focusOf(b);
+                    float x = framing(b)[0];
                     synchronized (focus) { focus.put(b, x); }
                 }
                 synchronized (thumbs) {
@@ -1225,7 +1229,7 @@ final class Recs {
         JSONObject o = get("/" + p.kind + "/" + p.id
                 + "?language=" + lang() + "&append_to_response=watch/providers,images,external_ids&include_image_language=null," + lang().substring(0, 2) + ",en");
         if (p.poster == null) p.poster = path(o, "poster_path");
-        String best = bestBackdrop(o.optJSONObject("images"));
+        String best = mostVertical(bestBackdrops(o.optJSONObject("images")));
         if (best != null) p.backdrop = best;
         p.logo = bestLogo(o.optJSONObject("images"));
         if (p.overview == null || p.overview.isEmpty()) p.overview = o.optString("overview", "");
@@ -1303,19 +1307,51 @@ final class Recs {
      * The title's best backdrop: no text written over it (our own text goes on top of it), at the highest resolution
      * (up to 3840, TMDB's 4K) and, on a tie, the highest rated.
      */
-    private static String bestBackdrop(JSONObject images) {
+    private static List<String> bestBackdrops(JSONObject images) {
         JSONArray list = images == null ? null : images.optJSONArray("backdrops");
-        String best = null;
-        double bestScore = -1;
+        List<Object[]> scored = new ArrayList<>();
         for (int i = 0; list != null && i < list.length(); i++) {
             JSONObject b = list.optJSONObject(i);
             if (b == null || b.optString("file_path", "").isEmpty()) continue;
             boolean textless = b.isNull("iso_639_1");
             int width = b.optInt("width");
             double score = (textless ? 1e7 : 0) + Math.min(width, 3840) * 100 + b.optDouble("vote_average", 0);
-            if (score > bestScore) {
-                bestScore = score;
-                best = b.optString("file_path");
+            scored.add(new Object[] {score, b.optString("file_path")});
+        }
+        java.util.Collections.sort(scored, (a, b) -> Double.compare((double) b[0], (double) a[0]));
+        // The ones as good as the best: textless if it is, and at least HD (score: 1e7 textless + width × 100).
+        List<String> out = new ArrayList<>();
+        double top = scored.isEmpty() ? 0 : (double) scored.get(0)[0];
+        for (Object[] o : scored)
+            if (out.isEmpty() || ((double) o[0] >= 1e7) == (top >= 1e7) && (double) o[0] % 1e7 >= 1280 * 100) out.add((String) o[1]);
+        return out;
+    }
+
+    /** Of the 5 best backdrops, the one that holds best as a vertical card too (its subject fits the slice). */
+    private static String mostVertical(List<String> backdrops) {
+        if (backdrops.isEmpty()) return null;
+        String best = backdrops.get(0);
+        float bestFit = 0;
+        for (String path : backdrops.subList(0, Math.min(5, backdrops.size()))) {
+            try {
+                HttpURLConnection c = (HttpURLConnection) new URL("https://image.tmdb.org/t/p/w300" + path).openConnection();
+                c.setConnectTimeout(8000);
+                c.setReadTimeout(8000);
+                Bitmap b;
+                try {
+                    b = BitmapFactory.decodeStream(c.getInputStream());
+                } finally {
+                    c.disconnect();
+                }
+                if (b == null) continue;
+                float fit = framing(b)[1];
+                b.recycle();
+                if (fit > bestFit + 0.05f) {   // a tie keeps the better rated
+                    bestFit = fit;
+                    best = path;
+                }
+            } catch (Exception e) {
+                AppLog.w("backdrop: " + e.getMessage());
             }
         }
         return best;
@@ -1340,12 +1376,15 @@ final class Recs {
         return best;
     }
 
-    /** Logos for the titles that came without TMDB's images (rows from discover, Continue watching). */
-    private void addLogos(List<Pick> all) {
+    /** Logo and backdrop for the titles that came without TMDB's images (the rows from discover). */
+    private void addImages(List<Pick> all) {
         for (Pick p : all) {
             if (p.logo != null || p.id == 0) continue;
             try {
-                p.logo = bestLogo(get("/" + p.kind + "/" + p.id + "/images?include_image_language=" + lang().substring(0, 2) + ",en,null"));
+                JSONObject images = get("/" + p.kind + "/" + p.id + "/images?include_image_language=" + lang().substring(0, 2) + ",en,null");
+                p.logo = bestLogo(images);
+                String best = mostVertical(bestBackdrops(images));
+                if (best != null) p.backdrop = best;
             } catch (Exception e) {
                 AppLog.w("logo: " + e.getMessage());
             }

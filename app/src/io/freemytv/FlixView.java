@@ -44,7 +44,7 @@ import java.util.concurrent.Executors;
  */
 final class FlixView extends FrameLayout implements Recs.Listener, HomeData.Listener {
     private static final float MARGIN = 72, NAV_H = 120;
-    private static final float POSTER_W = 250, POSTER_H = 375, WIDE_W = 667, GAP = 18;
+    private static final float POSTER_W = 360, POSTER_H = 540, WIDE_W = 960, GAP = 20;   // the focused card: half the screen
     private static final float APP_W = 400, APP_H = 225;
     private static final float BILL_TOP = 132, BILL_H = 620;
     private static final long TRAILER_DELAY = 700, ROTATE_EVERY = 20_000;
@@ -437,7 +437,7 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
         if (slider != null) slider.cancel();
         Row r = focusRow >= 0 && focusRow < rows.size() ? rows.get(focusRow) : null;
         final float fromX = dx > 0 ? WIDE_W + GAP : dx < 0 ? -(POSTER_W + GAP) : 0;
-        final float fromY = dy * 340f;
+        final float fromY = dy * 520f;
         if (fromX != 0 || fromY != 0) {
             slider = android.animation.ValueAnimator.ofFloat(1, 0);
             slider.setDuration(220);
@@ -564,10 +564,14 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
             RectF r = focusRow == -1 ? billboardRect(new RectF()) : wideCardRect(new RectF());
             trailerRect.set(r);
             LayoutParams lp = new LayoutParams(Math.round(r.width()), Math.round(r.height()));
+            lp.gravity = android.view.Gravity.TOP | android.view.Gravity.START;
             lp.leftMargin = Math.round(r.left);
             lp.topMargin = Math.round(r.top);
             trailerBox.setLayoutParams(lp);
-            web.evaluateJavascript("play('" + key + "')", null);
+            // After the layout pass: the player must crop for this card's size, not the last one's.
+            trailerBox.post(() -> {
+                if (key.equals(trailerKey)) web.evaluateJavascript("play('" + key + "')", null);
+            });
         });
         // The next card's trailer, looked up ahead so it starts sooner.
         Card next = focusRow >= 0 && focusCol[focusRow] + 1 < rows.get(focusRow).cards.size()
@@ -608,6 +612,7 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
         @JavascriptInterface public void playing() {
             handler.post(() -> {
                 if (trailerKey == null) return;
+                web.evaluateJavascript("fit()", null);
                 trailerOn = true;
                 trailerBox.animate().alpha(1).setDuration(400).start();
                 screen.invalidate();

@@ -824,43 +824,111 @@ final class Recs {
         }
         final String k = key(p);
         synchronized (trailers) {
-            if (trailers.containsKey(k)) {
-                String v = trailers.get(k);
+            String v = trailers.containsKey(k) ? trailers.get(k) : savedTrailers().getString(k, null);
+            if (v != null) {
+                trailers.put(k, v);
                 done.accept(v.isEmpty() ? null : v);
                 return;
             }
         }
         trailerIo.execute(() -> {
             String found = "";
+            boolean searched = false;
+            String mine = lang().substring(0, 2);
             try {
-                // Only trailers and teasers (clips and behind-the-scenes aren't the show's trailer); a Spanish one beats
-                // an English one. A show without any: its first season's.
-                String mine = lang().substring(0, 2);
-                String base = "/" + p.kind + "/" + p.id;
-                for (String where : p.kind.equals("tv") ? new String[] {base, base + "/season/1"} : new String[] {base}) {
-                    JSONArray v = get(where + "/videos?include_video_language=" + mine + ",en,null").getJSONArray("results");
-                    int best = -1;
-                    for (int i = 0; i < v.length(); i++) {
-                        JSONObject o = v.getJSONObject(i);
-                        String type = o.optString("type");
-                        if (!"YouTube".equals(o.optString("site")) || !("Trailer".equals(type) || "Teaser".equals(type))) continue;
-                        boolean native_ = mine.equals(o.optString("iso_639_1"));
-                        int score = ("Trailer".equals(type) ? 2 : 0) + (native_ ? 3 : 0)
-                                + (native_ && REGION.equals(o.optString("iso_3166_1")) ? 1 : 0) + (o.optBoolean("official") ? 1 : 0);
-                        if (score > best) {
-                            best = score;
-                            found = o.optString("key") + "|" + (native_ ? mine : "en");
-                        }
-                    }
-                    if (!found.isEmpty()) break;
+                found = tmdbTrailer(p, mine);
+                if (found.isEmpty() && !Config.YOUTUBE_KEY.trim().isEmpty()) {
+                    found = youtubeTrailer(p, mine);
+                    searched = true;
                 }
             } catch (Exception e) {
                 AppLog.w("trailer: " + e.getMessage());
             }
-            final String result = found;
+            final String result = found.isEmpty() ? "" : found + "|" + mine;
             synchronized (trailers) { trailers.put(k, result); }
+            // Kept on disk (YouTube searches are counted); "none" only once YouTube was asked too.
+            if (!result.isEmpty() || searched) savedTrailers().edit().putString(k, result).apply();
             main.post(() -> done.accept(result.isEmpty() ? null : result));
         });
+    }
+
+    private SharedPreferences savedTrailers() {
+        return context.getSharedPreferences("trailers-" + lang(), Context.MODE_PRIVATE);
+    }
+
+    /**
+     * TMDB's trailers and teasers in your language only (clips and behind-the-scenes aren't the show's trailer); a
+     * show without any: its first season's. Returns the YouTube id, or "".
+     */
+    private String tmdbTrailer(Pick p, String mine) throws Exception {
+        String base = "/" + p.kind + "/" + p.id;
+        for (String where : p.kind.equals("tv") ? new String[] {base, base + "/season/1"} : new String[] {base}) {
+            JSONArray v = get(where + "/videos?include_video_language=" + mine).getJSONArray("results");
+            String found = "";
+            int best = -1;
+            for (int i = 0; i < v.length(); i++) {
+                JSONObject o = v.getJSONObject(i);
+                String type = o.optString("type");
+                if (!"YouTube".equals(o.optString("site")) || !("Trailer".equals(type) || "Teaser".equals(type))) continue;
+                if (!mine.equals(o.optString("iso_639_1"))) continue;
+                int score = ("Trailer".equals(type) ? 2 : 0) + (REGION.equals(o.optString("iso_3166_1")) ? 1 : 0)
+                        + (o.optBoolean("official") ? 1 : 0);
+                if (score > best) {
+                    best = score;
+                    found = o.optString("key");
+                }
+            }
+            if (!found.isEmpty()) return found;
+        }
+        return "";
+    }
+
+    /**
+     * YouTube search for the title's trailer in your language (config.properties "youtube_key", 100 searches a day for
+     * free; each title is searched once). Dubbed beats subtitled; reviews, reactions and fan edits are skipped.
+     */
+    private String youtubeTrailer(Pick p, String mine) throws Exception {
+        boolean es = mine.equals("es");
+        String q = p.title + (es ? " tráiler oficial español latino" : mine.equals("pt") ? " trailer oficial dublado" : " official trailer");
+        String url = "https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&maxResults=8&videoEmbeddable=true"
+                + "&relevanceLanguage=" + mine + "&regionCode=" + REGION + "&q=" + URLEncoder.encode(q, "UTF-8")
+                + "&key=" + URLEncoder.encode(Config.YOUTUBE_KEY.trim(), "UTF-8");
+        HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
+        c.setConnectTimeout(8000);
+        c.setReadTimeout(8000);
+        JSONArray items;
+        try {
+            if (c.getResponseCode() != 200) throw new IOException("YouTube search returned HTTP " + c.getResponseCode());
+            items = new JSONObject(read(c.getInputStream())).getJSONArray("items");
+        } finally {
+            c.disconnect();
+        }
+        String want = plain(p.title);
+        String best = "";
+        int bestScore = 0;
+        for (int i = 0; i < items.length(); i++) {
+            JSONObject it = items.getJSONObject(i);
+            String id = it.optJSONObject("id") == null ? "" : it.getJSONObject("id").optString("videoId");
+            String t = plain(it.optJSONObject("snippet") == null ? "" : it.getJSONObject("snippet").optString("title"));
+            if (id.isEmpty() || !t.contains(want.length() > 24 ? want.substring(0, 24) : want)) continue;
+            if (!(t.contains("trailer") || t.contains("teaser") || t.contains("avance"))) continue;
+            if (t.matches(".*(reaccion|reaction|review|resena|explicad|fan ?made|concept|parodia).*")) continue;
+            int score = 1;
+            if (es && t.matches(".*(latino|espanol|doblad|castellano).*")) score += 3;
+            if (t.contains("subtitulad") || t.contains("sub esp")) score -= 2;   // the audio is still English
+            if (t.contains("oficial") || t.contains("official")) score += 1;
+            if (score > bestScore) {
+                bestScore = score;
+                best = id;
+            }
+        }
+        return best;
+    }
+
+    /** Lowercase, no accents or punctuation: "¡Tráiler!" → "trailer". */
+    private static String plain(String s) {
+        String n = java.text.Normalizer.normalize(s == null ? "" : s, java.text.Normalizer.Form.NFD).replaceAll("\\p{M}", "");
+        return n.toLowerCase(Locale.ROOT).replace("&#39;", "'").replace("&quot;", "").replaceAll("[^a-z0-9 ]", " ").replaceAll(" +", " ").trim();
     }
 
     /**

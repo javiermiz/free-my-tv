@@ -904,7 +904,7 @@ final class Recs {
         }
         trailerIo.execute(() -> {
             String found = "", tag;
-            boolean searched = false;
+            boolean searched = false, youtubeDown = false;
             String mine = lang().substring(0, 2);
             tag = mine;
             try {
@@ -914,11 +914,17 @@ final class Recs {
                 String enTitle = en == null ? p.title : en.optString(p.kind.equals("tv") ? "name" : "title", p.title);
                 String original = en == null ? "" : en.optString("original_language", "");
                 if (found.isEmpty() && !Config.YOUTUBE_KEY.trim().isEmpty()) {
-                    // Its English title too: Korean and Japanese shows' trailers are often named by it ("Perfect Crown").
-                    found = youtubeTrailer(p, mine, p.title + (es(mine) ? " tráiler oficial español latino" : " official trailer"), enTitle, original);
-                    if (found.isEmpty() && es(mine))
-                        found = youtubeTrailer(p, mine, enTitle + " trailer sub español", enTitle, original);
-                    searched = true;
+                    // YouTube down or out of searches for today: the fallbacks below, kept only until tomorrow's search.
+                    try {
+                        found = youtubeTrailer(p, mine, p.title + (es(mine) ? " tráiler oficial español latino" : " official trailer"), enTitle, original);
+                        // Its English title, subtitled: Korean and Japanese shows (an English one's must be dubbed).
+                        if (found.isEmpty() && es(mine) && !original.equals("en"))
+                            found = youtubeTrailer(p, mine, enTitle + " trailer sub español", enTitle, original);
+                        searched = true;
+                    } catch (IOException e) {
+                        AppLog.w("trailer: " + e.getMessage());
+                        youtubeDown = true;
+                    }
                 }
                 // No trailer in your language: a clip in it; an anime's opening (a song); last, the trailer without sound.
                 if (found.isEmpty()) found = tmdbVideo(p, mine, CLIPS, true);
@@ -936,7 +942,7 @@ final class Recs {
             final String result = found.isEmpty() ? "" : found + "|" + tag;
             synchronized (trailers) { trailers.put(k, result); }
             // Kept on disk (YouTube searches are counted); "none" only once YouTube was asked too.
-            if (!result.isEmpty() || searched) savedTrailers().edit().putString(k, result).apply();
+            if ((!result.isEmpty() && !youtubeDown) || searched) savedTrailers().edit().putString(k, result).apply();
             main.post(() -> done.accept(result.isEmpty() ? null : result));
         });
     }

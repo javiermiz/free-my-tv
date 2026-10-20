@@ -123,7 +123,8 @@ final class Recs {
     private volatile boolean light;     // light design: builds only the cards (all three tabs' cards fit in memory)
     private volatile long failedAt, keyStamp;
     private volatile boolean listEnglish;   // the saved list came in English (titles, genres and texts)
-    private volatile Pick resume;           // Stremio's title in progress (config.properties "stremio_key")
+    private volatile List<Pick> resumes = new ArrayList<>();   // Stremio's titles in progress, last watched first ("stremio_key")
+    private final Map<String, JSONObject> foundByImdb = new HashMap<>();   // TMDB's match for each, asked once
     private volatile List<Row> rows = new ArrayList<>();
     private final ExecutorService thumbIo = Executors.newSingleThreadExecutor();
     private final Map<String, Bitmap> thumbs = new LinkedHashMap<>();   // row cards, small (TMDB w500)
@@ -141,9 +142,9 @@ final class Recs {
             listAt = cache.getLong("listAt", 0);
             listEnglish = cache.getBoolean("english", false);
             keyStamp = cache.getLong("keyStamp", 0);
-            String r = cache.getString("resume", null);
-            if (r != null) resume = parse(new JSONArray().put(new JSONObject(r))).get(0);
-            if (resume != null) resume.resuming = true;
+            String r = cache.getString("resumes", null);
+            if (r != null) resumes = parse(new JSONArray(r));
+            for (Pick p : resumes) p.resuming = true;
             String savedRows = cache.getString("rows", null);
             if (savedRows != null) rows = parseRows(new JSONArray(savedRows));
         } catch (Exception ignored) {
@@ -219,14 +220,14 @@ final class Recs {
 
     // MARK: - Continue watching
 
-    /** Stremio's title in progress (resumes that movie or episode); other apps keep their progress to themselves. */
+    /** Stremio's titles in progress (each resumes that movie or episode); other apps keep their progress to themselves. */
     private List<Pick> continueCards() {
-        List<Pick> out = new ArrayList<>();
-        if (resume != null) out.add(resume);
-        return out;
+        return new ArrayList<>(resumes);
     }
 
-    /** Stremio's library (with the account key): the title watched most recently and not finished. Every 2 min. */
+    private static final int RESUME_MAX = 12;
+
+    /** Stremio's library (with the account key): the titles not finished, watched most recently first. Every 2 min. */
     private void refreshResume() {
         final String key = Config.STREMIO_KEY.trim();
         long now = System.currentTimeMillis();
@@ -239,26 +240,27 @@ final class Recs {
                 JSONObject res = post("https://api.strem.io/api/datastoreGet", body);
                 if (res.has("error")) throw new IOException(res.getJSONObject("error").optString("message"));
                 JSONArray items = res.getJSONArray("result");
-                JSONObject best = null;
-                long bestAt = 0;
+                List<JSONObject> going = new ArrayList<>();
                 for (int i = 0; i < items.length(); i++) {
                     JSONObject it = items.getJSONObject(i);
                     JSONObject st = it.optJSONObject("state");
                     // In progress: a position saved, and either in the library or only watched (temp).
                     if (st == null || st.optLong("timeOffset") <= 0 || !it.optString("_id").startsWith("tt")) continue;
                     if (it.optBoolean("removed") && !it.optBoolean("temp")) continue;
-                    long at = time(st.optString("lastWatched"));
-                    if (at > bestAt) {
-                        best = it;
-                        bestAt = at;
-                    }
+                    going.add(it);
                 }
-                Pick p = best == null ? null : resumePick(best);
-                if (p != null && p.backdrop != null) download(p);
-                resume = p;
-                SharedPreferences.Editor e = cache.edit();
-                if (p == null) e.remove("resume"); else e.putString("resume", json(p).toString());
-                e.apply();
+                java.util.Collections.sort(going, (a, b) -> Long.compare(
+                        time(b.optJSONObject("state").optString("lastWatched")), time(a.optJSONObject("state").optString("lastWatched"))));
+                List<Pick> out = new ArrayList<>();
+                JSONArray saved = new JSONArray();
+                for (JSONObject it : going.subList(0, Math.min(RESUME_MAX, going.size()))) {
+                    Pick p = resumePick(it);
+                    if (p.backdrop != null) download(p);
+                    out.add(p);
+                    saved.put(json(p));
+                }
+                resumes = out;
+                cache.edit().putString("resumes", saved.toString()).remove("resume").apply();
             } catch (Exception e) {
                 AppLog.w("continue watching: " + e.getMessage());
             }
@@ -273,11 +275,16 @@ final class Recs {
         JSONObject st = it.getJSONObject("state");
         Pick p = new Pick();
         p.kind = series ? "tv" : "movie";
-        if (hasKey(context)) {
+        JSONObject o;
+        synchronized (foundByImdb) { o = foundByImdb.get(id); }
+        if (o == null && hasKey(context)) {
             JSONArray found = get("/find/" + id + "?external_source=imdb_id&language=" + lang())
                     .optJSONArray(series ? "tv_results" : "movie_results");
-            if (found != null && found.length() > 0) {
-                JSONObject o = found.getJSONObject(0);
+            o = found != null && found.length() > 0 ? found.getJSONObject(0) : new JSONObject();
+            synchronized (foundByImdb) { foundByImdb.put(id, o); }
+        }
+        if (o != null) {
+            if (o.length() > 0) {
                 p.id = o.optInt("id");
                 p.title = o.optString(series ? "name" : "title");
                 p.backdrop = path(o, "backdrop_path");
@@ -878,9 +885,9 @@ final class Recs {
         return null;
     }
 
-    /** Stremio's title in progress, or null. */
-    Pick resume() {
-        return resume;
+    /** Stremio's titles in progress, last watched first. */
+    List<Pick> resumes() {
+        return resumes;
     }
 
     private final ExecutorService trailerIo = Executors.newSingleThreadExecutor();

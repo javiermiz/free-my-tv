@@ -245,17 +245,18 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
     private void rebuild(boolean force) {
         String kind = TAB_KIND[tab];
         List<Row> out = new ArrayList<>();
-        Recs.Pick resume = recs.resume();
-        if (resume != null && (kind == null || kind.equals(resume.kind))) {
+        List<Recs.Pick> going = new ArrayList<>();
+        for (Recs.Pick p : recs.resumes()) if (kind == null || kind.equals(p.kind)) going.add(p);
+        if (!going.isEmpty()) {
             Row r = row(out, es("Continuar viendo", "Continue watching"));
-            r.cards.add(card(resume));
+            for (Recs.Pick p : going) r.cards.add(card(p));
         }
         if (tab == 0) appRow(out, es("Tus apps", "Your apps"), shelf).shelf = true;   // near the top: picking an app is quick
         List<Recs.Pick> mine = new ArrayList<>();
         for (Recs.Pick p : recs.now(kind)) if (!p.resuming && p.pkg != null) mine.add(p);
         featuredList.clear();
         for (int i = 0; i < mine.size() && i < FEATURED_MAX; i++) featuredList.add(mine.get(i));
-        if (featuredList.isEmpty() && resume != null) featuredList.add(resume);
+        if (featuredList.isEmpty() && !going.isEmpty()) featuredList.add(going.get(0));
         featuredIndex = featuredList.isEmpty() ? 0 : Math.min(featuredIndex, featuredList.size() - 1);
         featured = featuredList.isEmpty() ? null : featuredList.get(featuredIndex);
         if (!mine.isEmpty()) {

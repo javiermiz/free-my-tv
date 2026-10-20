@@ -54,7 +54,7 @@ final class Recs {
     private static final String IMAGES = "https://image.tmdb.org/t/p/original";
     private static final long LIST_EVERY = 6 * 3600_000L;
     /** Bump when what is saved for each title changes (the saved list is discarded and fetched again). */
-    private static final int CACHE_VERSION = 5;
+    private static final int CACHE_VERSION = 6;
     private static final int MANHA = 0, TARDE = 1, NOITE = 2;
     static final String[] PERIOD_LABEL = {"PARA ESTA MANHÃ", "PARA ESTA TARDE", "PARA ESTA NOITE"};
     static final String[] PERIOD_LABEL_EN = {"THIS MORNING", "THIS AFTERNOON", "TONIGHT"};
@@ -427,6 +427,9 @@ final class Recs {
 
     /** Language of titles and genres; the services come from the region. */
     private static String lang() {
+        String lang = Config.LANGUAGE.trim().toLowerCase(Locale.ROOT);
+        if (lang.startsWith("es") || lang.equals("auto") && "es".equals(Locale.getDefault().getLanguage()))
+            return "ES".equals(REGION) ? "es-ES" : "es-MX";     // the UI stays English; only TMDB's text is Spanish
         return Ui.en ? "en-US" : "pt-BR";
     }
 

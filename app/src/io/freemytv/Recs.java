@@ -62,7 +62,7 @@ final class Recs {
     private static final String IMAGES = "https://image.tmdb.org/t/p/original";
     private static final long LIST_EVERY = 6 * 3600_000L;
     /** Bump when what is saved for each title changes (the saved list is discarded and fetched again). */
-    private static final int CACHE_VERSION = 11;
+    private static final int CACHE_VERSION = 12;
     private static final int MANHA = 0, TARDE = 1, NOITE = 2;
     static final String[] PERIOD_LABEL = {"PARA ESTA MANHÃ", "PARA ESTA TARDE", "PARA ESTA NOITE"};
     static final String[] PERIOD_LABEL_EN = {"THIS MORNING", "THIS AFTERNOON", "TONIGHT"};
@@ -293,9 +293,11 @@ final class Recs {
         p.link = "stremio:///detail/" + (series ? "series" : "movie") + "/" + id + "/" + st.optString("video_id", id);
         List<String> parts = new ArrayList<>();
         int season = st.optInt("season"), episode = st.optInt("episode");
-        if (series && episode > 0) parts.add(Ui.tr("T", "S") + season + " E" + episode);
+        boolean es = lang().startsWith("es");
+        if (series && episode > 0) parts.add((es ? "T" : Ui.tr("T", "S")) + season + " E" + episode);
         long left = (st.optLong("duration") - st.optLong("timeOffset")) / 60_000L;
-        if (st.optLong("duration") > 0 && left > 0) parts.add(Ui.tr("faltam " + left + " min", left + " min left"));
+        if (st.optLong("duration") > 0 && left > 0)
+            parts.add(es ? "faltan " + left + " min" : Ui.tr("faltam " + left + " min", left + " min left"));
         parts.add("Stremio");
         p.meta = String.join(" · ", parts);
         return p;
@@ -831,22 +833,26 @@ final class Recs {
         trailerIo.execute(() -> {
             String found = "";
             try {
-                // A Spanish trailer or teaser beats an English trailer; an English trailer beats a Spanish clip.
+                // Only trailers and teasers (clips and behind-the-scenes aren't the show's trailer); a Spanish one beats
+                // an English one. A show without any: its first season's.
                 String mine = lang().substring(0, 2);
-                JSONArray v = get("/" + p.kind + "/" + p.id + "/videos?include_video_language=" + mine + ",en,null")
-                        .getJSONArray("results");
-                int best = -1;
-                for (int i = 0; i < v.length(); i++) {
-                    JSONObject o = v.getJSONObject(i);
-                    if (!"YouTube".equals(o.optString("site"))) continue;
-                    String type = o.optString("type");
-                    boolean native_ = mine.equals(o.optString("iso_639_1"));
-                    int score = ("Trailer".equals(type) ? 4 : "Teaser".equals(type) ? 2 : 0) + (native_ ? 3 : 0)
-                            + (native_ && REGION.equals(o.optString("iso_3166_1")) ? 1 : 0) + (o.optBoolean("official") ? 1 : 0);
-                    if (score > best) {
-                        best = score;
-                        found = o.optString("key") + "|" + (native_ ? mine : "en");
+                String base = "/" + p.kind + "/" + p.id;
+                for (String where : p.kind.equals("tv") ? new String[] {base, base + "/season/1"} : new String[] {base}) {
+                    JSONArray v = get(where + "/videos?include_video_language=" + mine + ",en,null").getJSONArray("results");
+                    int best = -1;
+                    for (int i = 0; i < v.length(); i++) {
+                        JSONObject o = v.getJSONObject(i);
+                        String type = o.optString("type");
+                        if (!"YouTube".equals(o.optString("site")) || !("Trailer".equals(type) || "Teaser".equals(type))) continue;
+                        boolean native_ = mine.equals(o.optString("iso_639_1"));
+                        int score = ("Trailer".equals(type) ? 2 : 0) + (native_ ? 3 : 0)
+                                + (native_ && REGION.equals(o.optString("iso_3166_1")) ? 1 : 0) + (o.optBoolean("official") ? 1 : 0);
+                        if (score > best) {
+                            best = score;
+                            found = o.optString("key") + "|" + (native_ ? mine : "en");
+                        }
                     }
+                    if (!found.isEmpty()) break;
                 }
             } catch (Exception e) {
                 AppLog.w("trailer: " + e.getMessage());
@@ -920,18 +926,20 @@ final class Recs {
         if (p.overview == null || p.overview.isEmpty()) p.overview = o.optString("overview", "");
         List<String> parts = new ArrayList<>();
         JSONArray genres = o.optJSONArray("genres");
-        if (p.kind.equals("tv")) parts.add(Ui.tr("Série", "Series"));
+        // Written in TMDB's language (Spanish, Portuguese or English).
+        boolean es = lang().startsWith("es"), en = !es && Ui.en;
+        if (p.kind.equals("tv")) parts.add(es ? "Serie" : Ui.tr("Série", "Series"));
         if (genres != null && genres.length() > 0) {
             String name = genres.getJSONObject(0).optString("name");
-            parts.add(Ui.en ? name : genre(name));
+            parts.add(en ? name : genre(name, es ? GENRES_ES : GENRES_PT));
         }
         if (p.kind.equals("movie")) {
             int minutes = o.optInt("runtime");
-            if (minutes > 0 && Ui.en) parts.add(minutes >= 60 ? (minutes / 60) + "h " + (minutes % 60) + "m" : minutes + "m");
+            if (minutes > 0 && en) parts.add(minutes >= 60 ? (minutes / 60) + "h " + (minutes % 60) + "m" : minutes + "m");
             else if (minutes > 0) parts.add(minutes >= 60 ? (minutes / 60) + " h " + (minutes % 60) + " min" : minutes + " min");
         } else {
             int seasons = o.optInt("number_of_seasons");
-            if (seasons > 0 && Ui.en) parts.add(seasons == 1 ? "1 season" : seasons + " seasons");
+            if (seasons > 0 && en) parts.add(seasons == 1 ? "1 season" : seasons + " seasons");
             else if (seasons > 0) parts.add(seasons == 1 ? "1 temporada" : seasons + " temporadas");
         }
         JSONObject wp = o.optJSONObject("watch/providers");
@@ -958,20 +966,27 @@ final class Recs {
         p.detailed = true;
     }
 
-    /** TV genres that TMDB returns in English even in pt-BR. */
+    /** TV genres that TMDB returns in English even in Spanish or Portuguese. */
+    private static final String[][] GENRES_ES = {
+        {"Action & Adventure", "Acción y aventura"}, {"Sci-Fi & Fantasy", "Ciencia ficción y fantasía"},
+        {"War & Politics", "Bélica y política"}, {"Kids", "Infantil"}, {"News", "Noticias"}, {"Soap", "Telenovela"},
+        {"Talk", "Entrevistas"},
+    };
+
     private static final String[][] GENRES_PT = {
         {"Action & Adventure", "Ação e Aventura"}, {"Sci-Fi & Fantasy", "Ficção Científica e Fantasia"},
         {"War & Politics", "Guerra e Política"}, {"Kids", "Infantil"}, {"News", "Notícias"}, {"Soap", "Novela"},
         {"Talk", "Entrevistas"},
     };
 
-    private static String genre(String name) {
-        for (String[] g : GENRES_PT) if (g[0].equalsIgnoreCase(name)) return g[1];
+    private static String genre(String name, String[][] table) {
+        for (String[] g : table) if (g[0].equalsIgnoreCase(name)) return g[1];
         return name;
     }
 
     /** The same for lists saved earlier ("Série · Action & Adventure · …" in Portuguese). */
     private static String fixGenres(String meta) {
+        if (!lang().startsWith("pt")) return meta;
         for (String[] g : GENRES_PT) {
             meta = meta.replace(" · " + g[0] + " ·", " · " + g[1] + " ·");
             if (meta.endsWith(" · " + g[0])) meta = meta.substring(0, meta.length() - g[0].length()) + g[1];

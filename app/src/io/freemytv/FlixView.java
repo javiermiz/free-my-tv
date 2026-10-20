@@ -140,6 +140,9 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
         s.setJavaScriptEnabled(true);
         s.setMediaPlaybackRequiresUserGesture(false);
         s.setDomStorageEnabled(true);
+        // The page's viewport is the card itself (with a "device-width" viewport it measured the whole screen).
+        s.setUseWideViewPort(false);
+        s.setLoadWithOverviewMode(false);
         web.setWebChromeClient(new WebChromeClient());
         web.addJavascriptInterface(new Bridge(), "FreeMyTV");
         trailerBox.addView(web, new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT));
@@ -598,13 +601,14 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
      * One page with YouTube's player, loaded once and kept: each trailer only swaps the video. The video covers the
      * card (cropped like a photo, a little zoomed so YouTube's title strip and logo fall outside), with sound.
      */
-    private static final String PLAYER = "<!doctype html><html><head><meta name=viewport content='width=device-width,initial-scale=1'>"
+    private static final String PLAYER = "<!doctype html><html><head>"
             + "<style>html,body{margin:0;width:100%;height:100%;background:#000;overflow:hidden}#p{position:absolute;border:0}</style>"
             + "</head><body><div id=p></div><script src='https://www.youtube.com/iframe_api'></script><script>"
             + "var player=null,ready=false,pending=null;addEventListener('resize',fit);"
-            // Cover the W×H card: the 16:9 video scaled to fill it, 28% larger so YouTube's title and logo, and the
-            // black bars some trailers have baked in, fall outside.
-            + "function fit(){var W=innerWidth,H=innerHeight,vw=Math.max(W,H*16/9)*1.28,vh=vw*9/16,f=document.getElementById('p');if(!f)return;"
+            // Cover the card (its visible size: the layout viewport here measured the whole screen): the 16:9 video
+            // scaled to fill it, 40% larger so YouTube's title and logo, and black bars some trailers have, fall outside.
+            + "function fit(){var vv=window.visualViewport,W=vv?vv.width:innerWidth,H=vv?vv.height:innerHeight,"
+            + "vw=Math.max(W,H*16/9)*1.4,vh=vw*9/16,f=document.getElementById('p');if(!f)return;"
             + "f.style.width=vw+'px';f.style.height=vh+'px';f.style.left=((W-vw)/2)+'px';f.style.top=((H-vh)/2)+'px';}"
             + "function onYouTubeIframeAPIReady(){ready=true;if(pending){var a=pending;pending=null;play.apply(null,a);}}"
             // Subtitles in your language: its own track if the trailer has one, else YouTube's translation of the first.
@@ -618,18 +622,29 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
             + "if(!player){player=new YT.Player('p',{videoId:k,playerVars:{autoplay:1,controls:0,disablekb:1,fs:0,rel:0,"
             + "playsinline:1,iv_load_policy:3,hl:lang,cc_lang_pref:lang,cc_load_policy:subs?1:0},events:{"
             + "onReady:function(e){fit();e.target.unMute();e.target.setVolume(70);captions(subs,lang);e.target.playVideo();},"
-            + "onStateChange:function(e){if(e.data==1){fit();FreeMyTV.playing();}if(e.data==0)FreeMyTV.ended();},"
+            + "onStateChange:function(e){var id=(player&&player.getVideoData)?player.getVideoData().video_id:'';"
+            + "if(e.data==1){fit();FreeMyTV.playing(id);}if(e.data==0)FreeMyTV.ended(id);},"
             + "onError:function(e){FreeMyTV.failed();}}});}"
             + "else{player.loadVideoById(k);player.unMute();player.setVolume(70);captions(subs,lang);}}"
             + "function stop(){pending=null;if(player&&player.stopVideo)player.stopVideo();}</script></body></html>";
 
     private final class Bridge {
-        @JavascriptInterface public void playing() {
+        /** Shown only if it's this card's video (a late event from the last one must not show it here). */
+        @JavascriptInterface public void playing(String id) {
             handler.post(() -> {
                 if (trailerKey == null) return;
-                trailerOn = true;
-                trailerBox.animate().alpha(1).setDuration(400).start();
-                screen.invalidate();
+                if (!trailerKey.equals(id)) {
+                    AppLog.w("player: playing " + id + " but this card's trailer is " + trailerKey);
+                    return;
+                }
+                // A moment later: YouTube flashes its pause icon as it starts.
+                final String key = trailerKey;
+                handler.postDelayed(() -> {
+                    if (!key.equals(trailerKey)) return;
+                    trailerOn = true;
+                    trailerBox.animate().alpha(1).setDuration(400).start();
+                    screen.invalidate();
+                }, 700);
             });
         }
 
@@ -638,8 +653,9 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
         }
 
         /** The trailer ended: the photo comes back; on the featured title, the next one. */
-        @JavascriptInterface public void ended() {
+        @JavascriptInterface public void ended(String id) {
             handler.post(() -> {
+                if (trailerKey == null || !trailerKey.equals(id)) return;
                 stopTrailer();
                 if (focusRow == -1) nextFeatured(1);
             });

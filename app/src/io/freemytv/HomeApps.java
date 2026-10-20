@@ -165,6 +165,15 @@ final class HomeApps {
         c.getSharedPreferences("shelf", Context.MODE_PRIVATE).edit().putString("apps", String.join(",", pkgs)).commit();
     }
 
+    static String labelOf(Context c, String pkg) {
+        return label(c.getPackageManager(), pkg);
+    }
+
+    /** The app's TV art (or icon) card, for the "Continue on <app>" recommendation. */
+    static Bitmap tileFor(Context c, String pkg) {
+        return appTile(c, null, pkg, 0);
+    }
+
     private static String label(PackageManager pm, String pkg) {
         try {
             return String.valueOf(pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)));
@@ -344,6 +353,11 @@ final class HomeApps {
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         try {
             a.startActivity(intent, ActivityOptions.makeScaleUpAnimation(from, x, y, Math.max(w, 1), Math.max(h, 1)).toBundle());
+            if (it.kind == APP && !it.pkg.equals(a.getPackageName())) {
+                // For "Continue on <app>", the first recommendation.
+                a.getSharedPreferences("shelf", Context.MODE_PRIVATE).edit().putString("lastApp", it.pkg)
+                        .putLong("lastAppAt", System.currentTimeMillis()).apply();
+            }
             return true;
         } catch (ActivityNotFoundException | SecurityException e) {
             AppLog.w("couldn't open " + it.label + ": " + e.getMessage());

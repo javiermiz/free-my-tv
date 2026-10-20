@@ -45,6 +45,7 @@ final class Recs {
         String kind;            // "movie" or "tv"
         String title, backdrop, meta = "", app, pkg;
         String link;            // opens the title itself in the app (Stremio), or null = the app's home
+        Bitmap art;             // "Continue on <app>" card: the app's TV art instead of a photo
         boolean detailed;
     }
 
@@ -115,6 +116,8 @@ final class Recs {
     private volatile boolean light;     // light design: builds only the cards (all three tabs' cards fit in memory)
     private volatile long failedAt, keyStamp;
     private volatile boolean listEnglish;   // the saved list came in English (titles, genres and texts)
+    private volatile Pick resume;           // Stremio's title in progress (config.properties "stremio_key")
+    private volatile long resumeAt, resumeCheckedAt;
 
     private Recs(Context c) {
         context = c;
@@ -127,6 +130,9 @@ final class Recs {
             listAt = cache.getLong("listAt", 0);
             listEnglish = cache.getBoolean("english", false);
             keyStamp = cache.getLong("keyStamp", 0);
+            String r = cache.getString("resume", null);
+            if (r != null) resume = parse(new JSONArray().put(new JSONObject(r))).get(0);
+            resumeAt = cache.getLong("resumeAt", 0);
         } catch (Exception ignored) {
         }
     }
@@ -180,21 +186,149 @@ final class Recs {
 
     /** This hour's picks, movies only ("movie") or shows only ("tv"); null = both (the home screen tabs). */
     List<Pick> now(String kind) {
+        List<Pick> out = kind == null ? continueCards() : new ArrayList<>();   // Explore starts with Continue watching
+        if (!hasKey(context)) return out;     // no TMDB key: no recommendations
         List<Pick> list = new ArrayList<>();
-        if (!hasKey(context)) return list;    // no TMDB key: no recommendations
         for (Pick p : picks) {
             if ((kind == null || kind.equals(p.kind)) && (!p.detailed || p.pkg != null)) list.add(p);   // app missing: skip
         }
-        if (list.isEmpty()) return list;
+        if (list.isEmpty()) return out;
         long hour = System.currentTimeMillis() / 3600_000L;
         // Rotating every hour, never two from the same franchise ("Law & Order" and "Law & Order: Special…").
-        List<Pick> out = new ArrayList<>();
         java.util.Set<String> seen = new java.util.HashSet<>();
+        for (Pick p : out) seen.add(franchise(p.title));
         for (int i = 0; i < list.size() && out.size() < PER_TAB; i++) {
             Pick p = list.get((int) ((hour * 3 + i) % list.size()));
             if (seen.add(franchise(p.title))) out.add(p);
         }
         return out;
+    }
+
+    // MARK: - Continue watching
+
+    /**
+     * Most recent first: Stremio's title in progress (resumes that episode) and the last app opened from the home
+     * screen (Netflix and the rest keep their progress to themselves: Android only lets the factory launcher read it).
+     */
+    private List<Pick> continueCards() {
+        List<Pick> out = new ArrayList<>();
+        SharedPreferences shelf = context.getSharedPreferences("shelf", Context.MODE_PRIVATE);
+        String last = shelf.getString("lastApp", null);
+        long lastAt = shelf.getLong("lastAppAt", 0);
+        Pick r = resume, a = null;
+        if (last != null && installed(last) && !(r != null && last.equals(STREMIO))) {
+            a = new Pick();
+            a.kind = "app";
+            a.id = last.hashCode();
+            a.pkg = last;
+            a.detailed = true;
+            a.title = Ui.tr("Continuar no ", "Continue on ") + HomeApps.labelOf(context, last);
+            a.meta = Ui.tr("De onde você parou", "Pick up where you left off");
+            a.art = HomeApps.tileFor(context, last);
+        }
+        boolean stremioFirst = r != null && (a == null || resumeAt >= lastAt);
+        if (stremioFirst) out.add(r);
+        if (a != null) out.add(a);
+        if (r != null && !stremioFirst) out.add(r);
+        return out;
+    }
+
+    /** Stremio's library (with the account key): the title watched most recently and not finished. Every 2 min. */
+    private void refreshResume() {
+        final String key = Config.STREMIO_KEY.trim();
+        long now = System.currentTimeMillis();
+        if (key.isEmpty() || (now - resumeCheckedAt >= 0 && now - resumeCheckedAt < 2 * 60_000L)) return;
+        resumeCheckedAt = now;
+        io.execute(() -> {
+            try {
+                JSONObject body = new JSONObject().put("authKey", key).put("collection", "libraryItem")
+                        .put("ids", new JSONArray()).put("all", true);
+                JSONObject res = post("https://api.strem.io/api/datastoreGet", body);
+                if (res.has("error")) throw new IOException(res.getJSONObject("error").optString("message"));
+                JSONArray items = res.getJSONArray("result");
+                JSONObject best = null;
+                long bestAt = 0;
+                for (int i = 0; i < items.length(); i++) {
+                    JSONObject it = items.getJSONObject(i);
+                    JSONObject st = it.optJSONObject("state");
+                    // In progress: a position saved, and either in the library or only watched (temp).
+                    if (st == null || st.optLong("timeOffset") <= 0 || !it.optString("_id").startsWith("tt")) continue;
+                    if (it.optBoolean("removed") && !it.optBoolean("temp")) continue;
+                    long at = time(st.optString("lastWatched"));
+                    if (at > bestAt) {
+                        best = it;
+                        bestAt = at;
+                    }
+                }
+                Pick p = best == null ? null : resumePick(best);
+                if (p != null && p.backdrop != null) download(p);
+                resume = p;
+                resumeAt = bestAt;
+                SharedPreferences.Editor e = cache.edit().putLong("resumeAt", bestAt);
+                if (p == null) e.remove("resume"); else e.putString("resume", json(p).toString());
+                e.apply();
+            } catch (Exception e) {
+                AppLog.w("continue watching: " + e.getMessage());
+            }
+            notifyListeners();
+        });
+    }
+
+    /** A Stremio library item as a card: TMDB's title and photo, and a link that reopens that movie or episode. */
+    private Pick resumePick(JSONObject it) throws Exception {
+        String id = it.getString("_id"), type = it.optString("type");
+        boolean series = type.equals("series");
+        JSONObject st = it.getJSONObject("state");
+        Pick p = new Pick();
+        p.kind = series ? "tv" : "movie";
+        if (hasKey(context)) {
+            JSONArray found = get("/find/" + id + "?external_source=imdb_id&language=" + lang())
+                    .optJSONArray(series ? "tv_results" : "movie_results");
+            if (found != null && found.length() > 0) {
+                JSONObject o = found.getJSONObject(0);
+                p.id = o.optInt("id");
+                p.title = o.optString(series ? "name" : "title");
+                String b = o.optString("backdrop_path", "");
+                if (!b.isEmpty() && !b.equals("null")) p.backdrop = b;
+            }
+        }
+        if (p.title == null || p.title.isEmpty()) p.title = it.optString("name");
+        p.app = "stremio";
+        p.pkg = STREMIO;
+        p.detailed = true;
+        p.link = "stremio:///detail/" + (series ? "series" : "movie") + "/" + id + "/" + st.optString("video_id", id);
+        List<String> parts = new ArrayList<>();
+        int season = st.optInt("season"), episode = st.optInt("episode");
+        if (series && episode > 0) parts.add(Ui.tr("T", "S") + season + " E" + episode);
+        long left = (st.optLong("duration") - st.optLong("timeOffset")) / 60_000L;
+        if (st.optLong("duration") > 0 && left > 0) parts.add(Ui.tr("faltam " + left + " min", left + " min left"));
+        parts.add("Stremio");
+        p.meta = String.join(" · ", parts);
+        return p;
+    }
+
+    private static long time(String iso) {
+        try {
+            return java.time.Instant.parse(iso).toEpochMilli();
+        } catch (Exception e) {
+            return 0;
+        }
+    }
+
+    private static JSONObject post(String url, JSONObject body) throws IOException, org.json.JSONException {
+        HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
+        c.setConnectTimeout(8000);
+        c.setReadTimeout(8000);
+        c.setDoOutput(true);
+        c.setRequestProperty("Content-Type", "application/json");
+        try {
+            c.getOutputStream().write(body.toString().getBytes(StandardCharsets.UTF_8));
+            int code = c.getResponseCode();
+            if (code != 200) throw new IOException("Stremio returned HTTP " + code);
+            return new JSONObject(read(c.getInputStream()));
+        } finally {
+            c.disconnect();
+        }
     }
 
     /** "Law & Order: Special Victims Unit" → "law & order" (what comes before ":" or " - "). */
@@ -239,6 +373,7 @@ final class Recs {
 
     /** With a key: fetches the list if stale or the time of day (morning/afternoon/night) changed; then the details. */
     void refreshIfStale() {
+        refreshResume();
         if (!hasKey(context) || fetching) return;
         long now = System.currentTimeMillis();
         long stamp = Config.TMDB_KEY.hashCode() * 31L + REGION.hashCode();   // a new key or country refetches
@@ -263,7 +398,7 @@ final class Recs {
                     tried++;
                     try {
                         if (!pick.detailed) fetchDetails(pick);
-                        if (pick.pkg != null) download(pick);
+                        if (pick.pkg != null && pick.backdrop != null) download(pick);
                     } catch (Exception e) {
                         failures++;
                         last = e.getMessage() == null ? e.toString() : e.getMessage();
@@ -661,17 +796,18 @@ final class Recs {
     private void save() {
         try {
             JSONArray a = new JSONArray();
-            for (Pick p : picks) {
-                a.put(new JSONObject().put("id", p.id).put("kind", p.kind).put("title", p.title).put("backdrop", p.backdrop)
-                        .put("meta", p.meta).put("app", p.app == null ? "" : p.app).put("pkg", p.pkg == null ? "" : p.pkg)
-                        .put("link", p.link == null ? "" : p.link)
-                        .put("detailed", p.detailed));
-            }
+            for (Pick p : picks) a.put(json(p));
             cache.edit().putString("picks", a.toString()).putInt("period", period).putLong("listAt", listAt)
                     .putBoolean("english", listEnglish)
                     .putLong("keyStamp", keyStamp).putInt("version", CACHE_VERSION).apply();
         } catch (Exception ignored) {
         }
+    }
+
+    private static JSONObject json(Pick p) throws org.json.JSONException {
+        return new JSONObject().put("id", p.id).put("kind", p.kind).put("title", p.title).put("backdrop", p.backdrop)
+                .put("meta", p.meta).put("app", p.app == null ? "" : p.app).put("pkg", p.pkg == null ? "" : p.pkg)
+                .put("link", p.link == null ? "" : p.link).put("detailed", p.detailed);
     }
 
     private static List<Pick> parse(JSONArray a) {

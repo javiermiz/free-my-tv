@@ -2101,6 +2101,20 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         Bitmap img = b == null ? null : (i == 0 ? b.wide : b.tall);
         if (img != null) {
             c.drawBitmap(img, null, cell, bitmapPaint);
+        } else if (p != null && p.art != null) {
+            // "Continue on <app>": the app's TV art on a dark card.
+            fill.setShader(null);
+            fill.setColor(0xFF161618);
+            c.drawRect(cell, fill);
+            float aw = Math.min(cell.width() * 0.7f, cell.height() * 0.5f * p.art.getWidth() / p.art.getHeight());
+            float ah = aw * p.art.getHeight() / p.art.getWidth(), ar = 14 * k * s;
+            tmp.set(cell.centerX() - aw / 2, cell.centerY() - ah / 2, cell.centerX() + aw / 2, cell.centerY() + ah / 2);
+            clip.reset();
+            clip.addRoundRect(tmp, ar, ar, Path.Direction.CW);
+            c.save();
+            c.clipPath(clip);
+            c.drawBitmap(p.art, null, tmp, bitmapPaint);
+            c.restore();
         } else {
             fill.setShader(null);
             fill.setColor(tone(0xFFDADADF, 0xFF2C2C2E));

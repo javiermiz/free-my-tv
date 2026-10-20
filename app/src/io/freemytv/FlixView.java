@@ -564,7 +564,10 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
         recs.trailer(p, found -> {
             if (found == null || !running || p != trailerPick()) return;
             final String key = found.substring(0, found.indexOf('|'));
-            final boolean subs = !found.endsWith("|" + es("es", "en"));
+            // "|es": in your language; "|music": an opening song; "|mute": the original trailer, without sound.
+            final String tag = found.substring(found.indexOf('|') + 1);
+            final boolean mute = tag.equals("mute");
+            final boolean subs = !tag.equals(es("es", "en")) && !tag.equals("music");
             trailerKey = key;
             RectF r = focusRow == -1 ? billboardRect(new RectF()) : wideCardRect(new RectF());
             trailerRect.set(r);
@@ -576,8 +579,8 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
             // After the layout pass: the player must crop for this card's size, not the last one's.
             // Started after the layout pass, so the page measures this card, not the last one.
             float d = getResources().getDisplayMetrics().density;
-            final String call = String.format(Locale.US, "play('%s',%.1f,%.1f,%b,'%s')", key, r.width() / d, r.height() / d,
-                    subs, es("es", "en"));
+            final String call = String.format(Locale.US, "play('%s',%.1f,%.1f,%b,'%s',%b)", key, r.width() / d, r.height() / d,
+                    subs, es("es", "en"), mute);
             trailerBox.post(() -> {
                 if (key.equals(trailerKey)) web.evaluateJavascript(call, null);
             });
@@ -610,6 +613,7 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
             + "function fit(){var vv=window.visualViewport,W=vv?vv.width:innerWidth,H=vv?vv.height:innerHeight,"
             + "vw=Math.max(W,H*16/9)*1.4,vh=vw*9/16,f=document.getElementById('p');if(!f)return;"
             + "f.style.width=vw+'px';f.style.height=vh+'px';f.style.left=((W-vw)/2)+'px';f.style.top=((H-vh)/2)+'px';}"
+            + "var M=false;function sound(p){if(M){p.mute();}else{p.unMute();p.setVolume(70);}}"
             + "function onYouTubeIframeAPIReady(){ready=true;if(pending){var a=pending;pending=null;play.apply(null,a);}}"
             // Subtitles in your language: its own track if the trailer has one, else YouTube's translation of the first.
             + "function captions(subs,lang){try{if(!subs){player.unloadModule('captions');return;}player.loadModule('captions');"
@@ -618,14 +622,14 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
             + "if(m)player.setOption('captions','track',{languageCode:m.languageCode});"
             + "else if(t.length)player.setOption('captions','track',{languageCode:t[0].languageCode,translationLanguage:{languageCode:lang}});"
             + "}catch(e){}},1500);}catch(e){}}"
-            + "function play(k,w,h,subs,lang){if(!ready){pending=[k,w,h,subs,lang];return;}fit();setTimeout(fit,300);setTimeout(fit,1200);"
+            + "function play(k,w,h,subs,lang,mute){M=mute;if(!ready){pending=[k,w,h,subs,lang,mute];return;}fit();setTimeout(fit,300);setTimeout(fit,1200);"
             + "if(!player){player=new YT.Player('p',{videoId:k,playerVars:{autoplay:1,controls:0,disablekb:1,fs:0,rel:0,"
             + "playsinline:1,iv_load_policy:3,hl:lang,cc_lang_pref:lang,cc_load_policy:subs?1:0},events:{"
-            + "onReady:function(e){fit();e.target.unMute();e.target.setVolume(70);captions(subs,lang);e.target.playVideo();},"
+            + "onReady:function(e){fit();sound(e.target);captions(subs,lang);e.target.playVideo();},"
             + "onStateChange:function(e){var id=(player&&player.getVideoData)?player.getVideoData().video_id:'';"
             + "if(e.data==1){fit();FreeMyTV.playing(id);}if(e.data==0)FreeMyTV.ended(id);},"
             + "onError:function(e){FreeMyTV.failed();}}});}"
-            + "else{player.loadVideoById(k);player.unMute();player.setVolume(70);captions(subs,lang);}}"
+            + "else{player.loadVideoById(k);sound(player);captions(subs,lang);}}"
             + "function stop(){pending=null;if(player&&player.stopVideo)player.stopVideo();}</script></body></html>";
 
     private final class Bridge {

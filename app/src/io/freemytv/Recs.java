@@ -856,25 +856,37 @@ final class Recs {
             }
         }
         trailerIo.execute(() -> {
-            String found = "";
+            String found = "", tag;
             boolean searched = false;
             String mine = lang().substring(0, 2);
+            tag = mine;
             try {
-                found = tmdbTrailer(p, mine);
+                found = tmdbVideo(p, mine, TRAILERS, true);
+                JSONObject en = null;
+                if (found.isEmpty()) en = get("/" + p.kind + "/" + p.id + "?language=en-US");
+                String enTitle = en == null ? p.title : en.optString(p.kind.equals("tv") ? "name" : "title", p.title);
+                String original = en == null ? "" : en.optString("original_language", "");
                 if (found.isEmpty() && !Config.YOUTUBE_KEY.trim().isEmpty()) {
                     // Its English title too: Korean and Japanese shows' trailers are often named by it ("Perfect Crown").
-                    JSONObject en = get("/" + p.kind + "/" + p.id + "?language=en-US");
-                    String enTitle = en.optString(p.kind.equals("tv") ? "name" : "title", p.title);
-                    String original = en.optString("original_language", "");
                     found = youtubeTrailer(p, mine, p.title + (es(mine) ? " tráiler oficial español latino" : " official trailer"), enTitle, original);
                     if (found.isEmpty() && es(mine))
                         found = youtubeTrailer(p, mine, enTitle + " trailer sub español", enTitle, original);
                     searched = true;
                 }
+                // No trailer in your language: a clip in it; an anime's opening (a song); last, the trailer without sound.
+                if (found.isEmpty()) found = tmdbVideo(p, mine, CLIPS, true);
+                if (found.isEmpty() && "ja".equals(original) && p.kind.equals("tv")) {
+                    found = tmdbVideo(p, mine, OPENINGS, false);
+                    tag = "music";
+                }
+                if (found.isEmpty()) {
+                    found = tmdbVideo(p, mine, TRAILERS, false);
+                    tag = "mute";
+                }
             } catch (Exception e) {
                 AppLog.w("trailer: " + e.getMessage());
             }
-            final String result = found.isEmpty() ? "" : found + "|" + mine;
+            final String result = found.isEmpty() ? "" : found + "|" + tag;
             synchronized (trailers) { trailers.put(k, result); }
             // Kept on disk (YouTube searches are counted); "none" only once YouTube was asked too.
             if (!result.isEmpty() || searched) savedTrailers().edit().putString(k, result).apply();
@@ -883,7 +895,7 @@ final class Recs {
     }
 
     private SharedPreferences savedTrailers() {
-        return context.getSharedPreferences("trailers3-" + lang(), Context.MODE_PRIVATE);   // 3: subtitled allowed
+        return context.getSharedPreferences("trailers4-" + lang(), Context.MODE_PRIVATE);   // 4: clips and openings too
     }
 
     /** Spain's Spanish is fine only when the country is Spain (tmdb_region=ES). */
@@ -895,19 +907,29 @@ final class Recs {
      * TMDB's trailers and teasers in your language only (clips and behind-the-scenes aren't the show's trailer); a
      * show without any: its first season's. Returns the YouTube id, or "".
      */
-    private String tmdbTrailer(Pick p, String mine) throws Exception {
+    private static final List<String> TRAILERS = Arrays.asList("Trailer", "Teaser");
+    private static final List<String> CLIPS = Arrays.asList("Clip", "Featurette", "Opening Credits");
+    private static final List<String> OPENINGS = Arrays.asList("Opening Credits");
+
+    /**
+     * TMDB's videos of these types (earlier in the list = better), only in your language (`mineOnly`, never Spain's
+     * dub) or in any; a show without any: its first season's. Returns the YouTube id, or "".
+     */
+    private String tmdbVideo(Pick p, String mine, List<String> types, boolean mineOnly) throws Exception {
         String base = "/" + p.kind + "/" + p.id;
+        String langs = mineOnly ? mine : mine + ",en,ja,ko,null";
         for (String where : p.kind.equals("tv") ? new String[] {base, base + "/season/1"} : new String[] {base}) {
-            JSONArray v = get(where + "/videos?include_video_language=" + mine).getJSONArray("results");
+            JSONArray v = get(where + "/videos?include_video_language=" + langs).getJSONArray("results");
             String found = "";
             int best = -1;
             for (int i = 0; i < v.length(); i++) {
                 JSONObject o = v.getJSONObject(i);
-                String type = o.optString("type");
-                if (!"YouTube".equals(o.optString("site")) || !("Trailer".equals(type) || "Teaser".equals(type))) continue;
-                if (!mine.equals(o.optString("iso_639_1"))) continue;
-                if (mine.equals("es") && !spainOk() && "ES".equals(o.optString("iso_3166_1"))) continue;   // Spain's dub
-                int score = ("Trailer".equals(type) ? 2 : 0) + (REGION.equals(o.optString("iso_3166_1")) ? 1 : 0)
+                int rank = types.indexOf(o.optString("type"));
+                if (!"YouTube".equals(o.optString("site")) || rank < 0) continue;
+                boolean native_ = mine.equals(o.optString("iso_639_1"));
+                if (mineOnly && !native_) continue;
+                if (native_ && mine.equals("es") && !spainOk() && "ES".equals(o.optString("iso_3166_1"))) continue;   // Spain's dub
+                int score = (types.size() - rank) * 4 + (native_ ? 2 : 0) + (REGION.equals(o.optString("iso_3166_1")) ? 1 : 0)
                         + (o.optBoolean("official") ? 1 : 0);
                 if (score > best) {
                     best = score;

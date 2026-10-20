@@ -99,10 +99,23 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
     private boolean trailerOn;
     private final RectF trailerRect = new RectF();
     private final Runnable trailerStart = this::fetchTrailer;
+
+    // Continue watching: the movie or episode itself plays in its card (instead of a trailer) from where you left it;
+    // OK opens its page (the show page) over it, full screen, and Resume takes the page away, the same video going on.
+    private final Playback watch;
+    private final Runnable watchStart = this::fetchWatch;
+    private final Runnable watchAhead = this::loadAhead;
+    private static final long WATCH_DELAY = 150;   // only to skip the cards you go past quickly
+    private Recs.Pick keepWatch;      // while rescheduling: the video not to stop
+    private Recs.Pick watchPick;      // whose video is in `watch` (null = none)
+    private boolean watchOn;          // its first frame is on screen
+    private long watchOnAt;           // since when (the picture fades into it)
+    private long watchAsk;
+    private final RectF watchRect = new RectF();
     /** The featured title changes by itself while it has focus and no trailer is playing. */
     private final Runnable rotate = new Runnable() {
         @Override public void run() {
-            if (running && focusRow == -1 && !trailerOn && detail == null) nextFeatured(1);
+            if (running && focusRow == -1 && !trailerOn && !watchOn && detail == null) nextFeatured(1);
             handler.postDelayed(this, ROTATE_EVERY);
         }
     };
@@ -159,6 +172,21 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
         web.loadDataWithBaseURL("https://freemytv.io/", PLAYER, "text/html", "utf-8", null);
         trailerBox.setAlpha(0);
         addView(trailerBox, new LayoutParams(1, 1));
+        watch = new Playback(a, new Playback.Listener() {
+            @Override public void onStarted() {
+                watchOn = true;
+                watchOnAt = android.os.SystemClock.uptimeMillis();
+                screen.invalidate();
+            }
+
+            @Override public void onDone(boolean failed) {
+                if (failed && onVideoPage())
+                    Toast.makeText(activity, es("No se pudo reproducir", "Couldn't play it"), Toast.LENGTH_SHORT).show();
+                stopWatch();
+                if (onVideoPage()) closeDetail();
+            }
+        });
+        addView(watch, new LayoutParams(1, 1));
         screen = new Screen(a);
         addView(screen, new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT));
         shelf = HomeApps.shelf(a, false);
@@ -197,6 +225,8 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
         recs.removeListener(this);
         data.removeListener(this);
         stopTrailer();
+        stopWatch();
+        if (onVideoPage()) closeDetail();
     }
 
     void destroy() {
@@ -207,6 +237,8 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
 
     /** Home pressed while on the home screen: back to the featured title, on the first tab. */
     void reset() {
+        stopWatch();
+        if (onVideoPage()) closeDetail();
         moving = false;
         detail = null;
         focusRow = -1;
@@ -226,6 +258,14 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
     }
 
     @Override public void onRecs() {
+        if (!Config.STREMIO_KEY.trim().isEmpty()) {
+            final java.io.File cache = activity.getCacheDir();
+            List<Recs.Pick> going = recs.resumes();
+            for (int i = 0; i < Math.min(3, going.size()); i++) {
+                final String link = going.get(i).link;
+                if (link != null && link.startsWith("stremio:///detail/")) LOADER.execute(() -> Streams.prefetch(link, cache));
+            }
+        }
         rebuild(false);
         screen.invalidate();
     }
@@ -339,6 +379,7 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
     // MARK: - Keys
 
     boolean onKey(KeyEvent e) {
+        if (onVideoPage() && detail.full) return fullKey(e);
         boolean down = e.getAction() == KeyEvent.ACTION_DOWN;
         switch (e.getKeyCode()) {
             case KeyEvent.KEYCODE_DPAD_LEFT: if (down) move(-1, 0); return true;
@@ -506,6 +547,7 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
             return;
         } else if (focusRow == -1) {
             if (featured == null || featured.pkg == null) return;
+            if (openResume(featured)) return;
             it = HomeApps.app(featured.pkg, Recs.serviceName(featured));
             it.link = featured.link;
             if (pickEpisode(featured, it, r)) return;
@@ -514,6 +556,7 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
             if (c == null) return;
             if (c.pick != null) {
                 if (c.pick.pkg == null) return;
+                if (openResume(c.pick)) return;
                 it = HomeApps.app(c.pick.pkg, Recs.serviceName(c.pick));
                 it.link = c.pick.link;
                 if (pickEpisode(c.pick, it, r)) return;
@@ -586,6 +629,10 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
         int season, episode;     // index in seasons / episodes
         int row = 1;             // 0 seasons, 1 episodes
         int wantEpisode = -1;    // the episode number to land on once its season loads (yours in progress)
+        // Opened from Continue watching: the movie or episode plays behind the page, which leads with Resume and
+        // From the start (row 0, before the seasons). full = the page gone, only the video.
+        boolean video, movie, full;
+        int action = -1;         // 0 Resume, 1 From the start, -1 on the seasons
         float alpha, slide;      // fade in; episodes sliding into place
         String today = new java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(new java.util.Date());
 
@@ -600,12 +647,21 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
 
     /** A show in Stremio: its page opens here (fading in over the home screen). */
     private boolean pickEpisode(final Recs.Pick p, final HomeApps.Item it, final RectF r) {
+        return pickEpisode(p, it, r, false);
+    }
+
+    private boolean pickEpisode(final Recs.Pick p, final HomeApps.Item it, final RectF r, boolean inProgress) {
         final String prefix = "stremio:///detail/series/";
-        if (p.resuming || p.id == 0 || p.link == null || !p.link.startsWith(prefix)) return false;
+        if ((p.resuming && !inProgress) || p.id == 0 || p.link == null || !p.link.startsWith(prefix)) return false;
         final Detail d = new Detail();
         d.pick = p;
         d.imdb = p.link.substring(prefix.length()).split("/")[0];
         d.app = it;
+        if (inProgress) {
+            d.video = true;
+            d.row = 0;
+            d.action = 0;
+        }
         // Yours in progress on Stremio: land on that season and episode ("tt…:2:5").
         int wantSeason = -1;
         for (Recs.Pick going : recs.resumes()) {
@@ -622,19 +678,12 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
         detail = d;
         stopTrailer();
         click.open();
-        if (detailAnim != null) detailAnim.cancel();
-        detailAnim = android.animation.ValueAnimator.ofFloat(0, 1);
-        detailAnim.setDuration(240);
-        detailAnim.setInterpolator(EASE);
-        detailAnim.addUpdateListener(v -> {
-            d.alpha = (float) v.getAnimatedValue();
-            screen.invalidate();
-        });
-        detailAnim.start();
+        fadeDetail(1, null);
         final int want = wantSeason;
         recs.episodes(p, -1, seasons -> handler.post(() -> {
             if (detail != d) return;
             if (seasons == null || seasons.isEmpty()) {
+                if (d.video) return;   // the page still has Resume
                 closeDetail();
                 launch(it, r);
                 return;
@@ -660,14 +709,59 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
         }));
     }
 
+    private void fadeDetail(float to, Runnable then) {
+        final Detail d = detail;
+        if (detailAnim != null) detailAnim.cancel();
+        detailAnim = android.animation.ValueAnimator.ofFloat(d.alpha, to);
+        detailAnim.setDuration(240);
+        detailAnim.setInterpolator(EASE);
+        detailAnim.addUpdateListener(v -> {
+            d.alpha = (float) v.getAnimatedValue();
+            screen.invalidate();
+        });
+        if (then != null) detailAnim.addListener(new android.animation.AnimatorListenerAdapter() {
+            @Override public void onAnimationEnd(android.animation.Animator a) {
+                if (detail == d) then.run();
+            }
+        });
+        detailAnim.start();
+    }
+
+    private boolean onVideoPage() {
+        return detail != null && detail.video;
+    }
+
     private void closeDetail() {
+        boolean video = onVideoPage();
+        if (detailAnim != null) detailAnim.cancel();
         detail = null;
         screen.invalidate();
-        scheduleTrailer();
+        if (!video) {
+            scheduleTrailer();
+            return;
+        }
+        activity.getWindow().clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        // The video, if still playing, shrinks back into its card.
+        if (watchPick != null && watchPick == trailerPick()) {
+            watch.setFull(false);
+            place(watch, watchRect);
+        } else {
+            stopWatch();
+            scheduleTrailer();
+        }
     }
 
     private void detailMove(int dx, int dy) {
         final Detail d = detail;
+        if (d.video && d.row == 0 && dx != 0 && (d.action >= 0 || (dx < 0 && d.season == 0))) {
+            int next = d.action < 0 ? 1 : d.action + dx;
+            if (next > 1 && (d.seasons == null || d.movie)) return;
+            if (next < 0) return;
+            d.action = next > 1 ? -1 : next;
+            click.move();
+            screen.invalidate();
+            return;
+        }
         if (dy > 0 && d.row == 0 && d.episodes != null && !d.episodes.isEmpty()) d.row = 1;
         else if (dy < 0 && d.row == 1 && d.seasons != null) d.row = 0;
         else if (dx != 0 && d.row == 0 && d.seasons != null) {
@@ -697,7 +791,13 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
     }
 
     private void detailActivate() {
-        Detail d = detail;
+        final Detail d = detail;
+        if (d.video && d.row == 0 && d.action >= 0) {
+            click.open();
+            if (d.action == 1) watch.restart();
+            watchFull(d);
+            return;
+        }
         if (d.row == 0) {
             if (d.episodes != null && !d.episodes.isEmpty()) d.row = 1;
             screen.invalidate();
@@ -705,6 +805,17 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
         }
         if (d.episodes == null || d.episodes.isEmpty()) return;
         int season = d.seasons.get(d.season).optInt("season_number"), ep = d.episodes.get(d.episode).optInt("episode_number");
+        if (d.video) {
+            // The episode playing behind: that's Resume; another one plays in its own player, the page staying.
+            if (d.pick.link.endsWith(":" + season + ":" + ep)) {
+                click.open();
+                watchFull(d);
+                return;
+            }
+            stopWatch();
+            d.video = false;
+            activity.getWindow().clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        }
         d.app.link = "stremio:///detail/series/" + d.imdb + "/" + d.imdb + ":" + season + ":" + ep;
         RectF r = new RectF(EP_X * k, EP_TOP * k, (EP_X + EP_W) * k, (EP_TOP + EP_H) * k);
         launch(d.app, r);
@@ -713,10 +824,19 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
     private void drawDetail(Canvas c) {
         Detail d = detail;
         Recs.Pick p = d.pick;
+        boolean behind = d.video && watchOn;   // the video shows through
+        float ca = d.video ? coverAlpha() : 0;
+        if (ca > 0) {
+            r1.set(0, 0, w, h);
+            drawFading(c, recs.image(p.backdrop, "w1280"), r1, 0, 0xFF111114, ca);
+            if (d.full && !watchOn) drawSpinner(c, w / 2f, h / 2f);
+        }
         int layer = d.alpha < 1 ? c.saveLayerAlpha(0, 0, w, h, Math.round(d.alpha * 255)) : -1;
-        c.drawColor(0xFF000000);
-        r1.set(0, 0, w, h);
-        drawCover(c, recs.image(p.backdrop, "w1280"), r1, 0, 0xFF111114);
+        if (!d.video) {
+            c.drawColor(0xFF000000);
+            r1.set(0, 0, w, h);
+            drawCover(c, recs.image(p.backdrop, "w1280"), r1, 0, 0xFF111114);
+        }
         fill.setShader(new LinearGradient(0, 0, w * 0.72f, 0, 0xF2000000, 0x00000000, Shader.TileMode.CLAMP));
         c.drawRect(0, 0, w, h, fill);
         fill.setShader(new LinearGradient(0, h * 0.42f, 0, h, 0x00000000, 0xF5000000, Shader.TileMode.CLAMP));
@@ -728,21 +848,50 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
         if (Float.isNaN(logoTop)) logoTop = drawBlockUp(c, p.title, billTitle, x, y, 1000 * k, 2);
         fill.setColor(ACCENT);
         c.drawRect(x, logoTop - 38 * k, x + 6 * k, logoTop - 16 * k, fill);
-        c.drawText(es("SERIE", "SERIES"), x + 18 * k, logoTop - 18 * k, kindLabel);
+        c.drawText(d.movie ? es("PELÍCULA", "FILM") : es("SERIE", "SERIES"), x + 18 * k, logoTop - 18 * k, kindLabel);
         float ty = y + 16 * k;
         if (namedApart(p)) ty = drawBlockDown(c, p.title, nameUnder, x, ty, 1000 * k, 1) + 6 * k;
         ty = drawBlockDown(c, info(p), billMeta, x, ty, 1000 * k, 1) + 10 * k;
         drawBlockDown(c, p.overview, billOverview, x, ty, 860 * k, 2);
-        // Seasons.
-        if (d.seasons == null) {
-            c.drawText(es("Cargando…", "Loading…"), x, (PILL_Y + 36) * k, meta);
+        // Resume and From the start (opened from Continue watching), then the seasons.
+        float px = x;
+        if (d.video) {
+            String[] labels = {es("Reanudar", "Resume") + episodeOf(p), es("Desde el inicio", "From the start")};
+            for (int i = 0; i < 2; i++) {
+                boolean focused = d.row == 0 && d.action == i;
+                float lead = i == 0 ? 40 * k : 0, pw = pill.measureText(labels[i]) + 48 * k + lead;
+                r2.set(px, PILL_Y * k, px + pw, (PILL_Y + PILL_H) * k);
+                fill.setColor(focused ? 0xFFFFFFFF : 0x33FFFFFF);
+                c.drawRoundRect(r2, r2.height() / 2, r2.height() / 2, fill);
+                pill.setColor(focused ? 0xFF000000 : 0xFFFFFFFF);
+                if (i == 0) c.drawPath(playTriangle(px + 34 * k, r2.centerY(), 16 * k), pill);
+                c.drawText(labels[i], px + 24 * k + lead, r2.centerY() + Ui.halfCap(pill), pill);
+                if (i == 0) {
+                    // How far in you are, along the bottom of the pill.
+                    long dur = watch.duration();
+                    float done = dur > 0 ? Math.min(1, (float) watch.position() / dur) : 0;
+                    if (done > 0) {
+                        float lx = px + 24 * k, lw = pw - 48 * k, ly = r2.bottom - 11 * k;
+                        fill.setColor(focused ? 0x26000000 : 0x40FFFFFF);
+                        c.drawRoundRect(lx, ly - 2 * k, lx + lw, ly + 2 * k, 2 * k, 2 * k, fill);
+                        fill.setColor(ACCENT);
+                        c.drawRoundRect(lx, ly - 2 * k, lx + lw * done, ly + 2 * k, 2 * k, 2 * k, fill);
+                    }
+                }
+                px += pw + 12 * k;
+            }
+            px += 28 * k;
+        }
+        if (d.movie) {
+            // A movie: no seasons or episodes.
+        } else if (d.seasons == null) {
+            c.drawText(es("Cargando…", "Loading…"), px, (PILL_Y + 36) * k, meta);
         } else {
-            float px = x;
             int first = Math.max(0, Math.min(d.season - 5, d.seasons.size() - 7));
             for (int i = first; i < d.seasons.size() && px < w; i++) {
                 String name = d.seasons.get(i).optString("name");
                 String label = name.isEmpty() ? es("Temporada ", "Season ") + d.seasons.get(i).optInt("season_number") : name;
-                boolean focused = d.row == 0 && i == d.season, chosen = i == d.season;
+                boolean focused = d.row == 0 && d.action < 0 && i == d.season, chosen = i == d.season;
                 float tw = pill.measureText(label), pw = tw + 48 * k;
                 r2.set(px, PILL_Y * k, px + pw, (PILL_Y + PILL_H) * k);
                 if (focused || chosen) {
@@ -777,6 +926,7 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
             }
         }
         if (layer >= 0) c.restoreToCount(layer);
+        if (behind) screen.postInvalidateDelayed(1000);   // the progress in Resume
     }
 
     /** An episode's card: its still (the show's picture when it has none), dimmed with "Coming soon" if not out yet. */
@@ -871,8 +1021,21 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
     }
 
     private void scheduleTrailer() {
+        // Kept: the video already in this card, or the one loaded ahead for the row below.
+        Recs.Pick p = trailerPick();
+        keepWatch = watchPick != null && (watchPick == p && p != null && canWatch(p)
+                || watch.waiting() && watchPick == nextInProgress()) ? watchPick : null;
         stopTrailer();
-        if (running && detail == null && trailerPick() != null) handler.postDelayed(trailerStart, TRAILER_DELAY);
+        keepWatch = null;
+        if (!running || detail != null || p == null) return;
+        if (canWatch(p)) {
+            handler.postDelayed(watchStart, WATCH_DELAY);
+            return;
+        }
+        handler.postDelayed(trailerStart, TRAILER_DELAY);
+        // The row below is Continue watching: its title loads ahead, so it plays at once when you get there.
+        Recs.Pick ahead = nextInProgress();
+        if (ahead != null && ahead != watchPick) handler.postDelayed(watchAhead, 1000);
     }
 
     private void fetchTrailer() {
@@ -910,6 +1073,9 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
 
     private void stopTrailer() {
         handler.removeCallbacks(trailerStart);
+        handler.removeCallbacks(watchStart);
+        handler.removeCallbacks(watchAhead);
+        if (!onVideoPage() && (watchPick == null || watchPick != keepWatch)) stopWatch();
         if (trailerKey != null) web.evaluateJavascript("stop()", null);
         trailerKey = null;
         trailerOn = false;
@@ -983,6 +1149,179 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
         }
     }
 
+    // MARK: - Continue watching: the video itself in the card, then its page over it
+
+    private static boolean canWatch(Recs.Pick p) {
+        return p.resuming && p.link != null && p.link.startsWith("stremio:///detail/") && !Config.STREMIO_KEY.trim().isEmpty();
+    }
+
+    /** The title in progress in the row right below the focused one, if that row is Continue watching. */
+    private Recs.Pick nextInProgress() {
+        int r = focusRow + 1;
+        if (focusRow < -1 || r >= rows.size()) return null;
+        Row row = rows.get(r);
+        if (row.cards.isEmpty()) return null;
+        Card c = row.cards.get(Math.max(0, Math.min(focusCol[r], row.cards.size() - 1)));
+        return c.pick != null && canWatch(c.pick) ? c.pick : null;
+    }
+
+    private void loadAhead() {
+        final Recs.Pick p = nextInProgress();
+        if (p == null || p == watchPick || !running) return;
+        final long asked = ++watchAsk;
+        final String link = p.link;
+        final java.io.File cache = activity.getCacheDir();
+        new Thread(() -> {
+            Streams.Choice choice = Streams.best(link, cache);
+            handler.post(() -> {
+                if (asked != watchAsk || !running || choice == null || nextInProgress() != p || detail != null) return;
+                watch.stop();
+                watchPick = p;
+                watchOn = false;
+                place(watch, new RectF());
+                watch.setFull(false);
+                watch.play(choice, null, episodeTitle(p, choice), p.title,
+                        p.poster == null ? null : "https://image.tmdb.org/t/p/w342" + p.poster, true);
+            });
+        }).start();
+    }
+
+    private void fetchWatch() {
+        final Recs.Pick p = onVideoPage() ? detail.pick : trailerPick();
+        if (p != null && p == watchPick && watch.waiting()) {
+            // Loaded ahead: only to show it.
+            watchRect.set(focusRow == -1 ? billboardRect(new RectF()) : wideCardRect(new RectF()));
+            place(watch, onVideoPage() ? null : watchRect);
+            watch.reveal();
+            return;
+        }
+        if (p == null || !canWatch(p) || p == watchPick) return;
+        final long asked = ++watchAsk;
+        final String link = p.link;
+        final java.io.File cache = activity.getCacheDir();
+        new Thread(() -> {
+            Streams.Choice choice = Streams.best(link, cache);
+            handler.post(() -> {
+                boolean page = onVideoPage();
+                Recs.Pick now = page ? detail.pick : trailerPick();
+                if (asked != watchAsk || !running || now != p) return;
+                if (choice == null) {
+                    if (page) {
+                        Toast.makeText(activity, es("No encontré dónde verlo", "Couldn't find it to watch"), Toast.LENGTH_SHORT).show();
+                        closeDetail();
+                    }
+                    return;
+                }
+                watchPick = p;
+                watchRect.set(focusRow == -1 ? billboardRect(new RectF()) : wideCardRect(new RectF()));
+                place(watch, page ? null : watchRect);
+                watch.setFull(false);
+                watch.play(choice, null, episodeTitle(p, choice), p.title,
+                        p.poster == null ? null : "https://image.tmdb.org/t/p/w342" + p.poster);
+            });
+        }).start();
+    }
+
+    private void stopWatch() {
+        watchAsk++;
+        watch.stop();
+        watchPick = null;
+        watchOn = false;
+        place(watch, new RectF());
+        screen.invalidate();
+    }
+
+    /** A view under the Canvas, over this rectangle (null = the whole screen). */
+    private void place(View v, RectF r) {
+        LayoutParams lp = r == null ? new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT)
+                : new LayoutParams(Math.max(1, Math.round(r.width())), Math.max(1, Math.round(r.height())));
+        lp.gravity = android.view.Gravity.TOP | android.view.Gravity.START;
+        if (r != null) {
+            lp.leftMargin = Math.round(r.left);
+            lp.topMargin = Math.round(r.top);
+        }
+        v.setLayoutParams(lp);
+    }
+
+    private String episodeTitle(Recs.Pick p, Streams.Choice choice) {
+        String[] v = choice.video.split(":");
+        return v.length >= 3 ? p.title + "  ·  " + es("T", "S") + v[v.length - 2] + " E" + v[v.length - 1] : p.title;
+    }
+
+    /** " T1:E2" of the episode in progress ("" for a movie). */
+    private static String episodeOf(Recs.Pick p) {
+        String[] v = p.link.split(":");
+        return v.length >= 4 ? " " + es("T", "S") + v[v.length - 2] + ":E" + v[v.length - 1] : "";
+    }
+
+    /** OK on a title in progress: its page over its video (already playing in the card, or starting now). */
+    private boolean openResume(Recs.Pick p) {
+        if (!canWatch(p)) return false;
+        handler.removeCallbacks(watchStart);
+        handler.removeCallbacks(trailerStart);
+        if (trailerKey != null) {
+            web.evaluateJavascript("stop()", null);
+            trailerKey = null;
+            trailerOn = false;
+            trailerBox.setAlpha(0);
+        }
+        activity.getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        boolean same = watchPick == p;
+        if (p.link.startsWith("stremio:///detail/series/")) {
+            HomeApps.Item it = HomeApps.app(p.pkg, Recs.serviceName(p));
+            it.link = p.link;
+            pickEpisode(p, it, new RectF(0, 0, w, h), true);
+        } else {
+            Detail d = new Detail();
+            d.pick = p;
+            d.video = d.movie = true;
+            d.row = 0;
+            d.action = 0;
+            detail = d;
+            click.open();
+            fadeDetail(1, null);
+        }
+        if (same && watch.waiting()) fetchWatch();
+        else if (same) place(watch, null);
+        else {
+            stopWatch();
+            fetchWatch();
+        }
+        return true;
+    }
+
+    /** Resume: the page fades away and the same video goes on, full screen. */
+    private void watchFull(final Detail d) {
+        fadeDetail(0, () -> {
+            d.full = true;
+            watch.setFull(true);
+            screen.invalidate();
+        });
+    }
+
+    /** The remote while only the video shows; BACK brings its page back (your place is saved), the video going on. */
+    private boolean fullKey(KeyEvent e) {
+        int code = e.getKeyCode();
+        if (code == KeyEvent.KEYCODE_BACK || code == KeyEvent.KEYCODE_ESCAPE) {
+            if (e.getAction() == KeyEvent.ACTION_DOWN) {
+                detail.full = false;
+                watch.setFull(false);
+                fadeDetail(1, null);
+            }
+            return true;
+        }
+        watch.onKey(e);
+        return true;
+    }
+
+    private void drawSpinner(Canvas c, float cx, float cy) {
+        float t = android.os.SystemClock.uptimeMillis() / 1000f, s = 26 * k;
+        findingArc.set(cx - s, cy - s, cx + s, cy + s);
+        spinner.setAlpha(255);
+        c.drawArc(findingArc, t * 360 % 360, 100, false, spinner);
+        screen.postInvalidateOnAnimation();
+    }
+
     // MARK: - Layout
 
     private RectF billboardRect(RectF out) {
@@ -1048,13 +1387,18 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
 
         @Override protected void onDraw(Canvas c) {
             if (navOn == null) return;
-            // Black everywhere but the playing trailer, which shows through from the WebView underneath.
-            if (trailerOn) {
+            if (onVideoPage()) {
+                // Over the video (under this Canvas): nothing drawn here once it's only the video.
+                if (!detail.full || !watchOn) drawDetail(c);
+                return;
+            }
+            // Black everywhere but the playing trailer (or video in progress), which shows through from underneath.
+            if (trailerOn || watchOn) {
                 float rr = (focusRow == -1 ? 22 : 12) * k;
                 hole.reset();
                 hole.setFillType(Path.FillType.EVEN_ODD);
                 hole.addRect(0, 0, w, h, Path.Direction.CW);
-                hole.addRoundRect(trailerRect, rr, rr, Path.Direction.CW);
+                hole.addRoundRect(watchOn ? watchRect : trailerRect, rr, rr, Path.Direction.CW);
                 fill.setShader(null);
                 fill.setColor(0xFF000000);
                 c.drawPath(hole, fill);
@@ -1126,9 +1470,10 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
         RectF b = billboardRect(r2);
         float rad = 22 * k;
         Recs.Pick p = featured;
-        if (!trailerOn) {
+        float ca = coverAlpha();
+        if (ca > 0) {
             Bitmap img = p == null ? null : recs.image(p.backdrop, "w1280");
-            drawCover(c, img, b, rad, 0xFF1C1C1F);
+            drawFading(c, img, b, rad, 0xFF1C1C1F, ca);
         }
         fill.setShader(new LinearGradient(b.left, 0, b.left + b.width() * 0.62f, 0, 0xE0000000, 0x00000000, Shader.TileMode.CLAMP));
         c.drawRoundRect(b, rad, rad, fill);
@@ -1255,8 +1600,9 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
     /** The same picture vertical (its middle) and wide; the title's logo, or its name, at the bottom. */
     private void drawPickCard(Canvas c, Recs.Pick p, RectF r, boolean wide) {
         float rad = 12 * k;
-        boolean playing = wide && trailerOn && focusRow >= 0;
-        if (!playing) drawCover(c, recs.image(p.backdrop, "w780"), r, rad, 0xFF26262A);
+        boolean playing = wide && (trailerOn || watchOn) && focusRow >= 0;
+        float ca = playing ? coverAlpha() : 1;
+        if (ca > 0) drawFading(c, recs.image(p.backdrop, "w780"), r, rad, 0xFF26262A, ca);
         fill.setShader(new LinearGradient(0, r.bottom - r.height() * (playing ? 0.45f : 0.5f), 0, r.bottom, 0x00000000,
                 playing ? 0xB0000000 : 0xD0000000, Shader.TileMode.CLAMP));
         c.drawRoundRect(r, rad, rad, fill);
@@ -1366,6 +1712,24 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
     }
 
     /** Center-crops `img` into `r` with rounded corners; a flat color while it loads. */
+    /** How much of the picture still covers the playing video: it fades out over 450 ms once the video starts. */
+    private float coverAlpha() {
+        if (!watchOn) return trailerOn ? 0 : 1;
+        float a = 1 - (android.os.SystemClock.uptimeMillis() - watchOnAt) / 450f;
+        if (a > 0) screen.postInvalidateOnAnimation();
+        return Math.max(0, a);
+    }
+
+    private void drawFading(Canvas c, Bitmap img, RectF r, float rad, int placeholder, float alpha) {
+        if (alpha >= 1) {
+            drawCover(c, img, r, rad, placeholder);
+            return;
+        }
+        int layer = c.saveLayerAlpha(r, Math.round(alpha * 255));
+        drawCover(c, img, r, rad, placeholder);
+        c.restoreToCount(layer);
+    }
+
     private void drawCover(Canvas c, Bitmap img, RectF r, float rad, int placeholder) {
         if (img == null) {
             fill.setShader(null);

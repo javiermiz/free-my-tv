@@ -32,6 +32,14 @@ final class Streams {
             "latino|latam|lat-am|\\blat\\b|hispano|🇲🇽|🇦🇷|🇨🇴|🇨🇱|🇵🇪|🇻🇪");
     private static final Pattern SPAIN = Pattern.compile("castellano|español|espanol|spanish|\\besp?\\b|\\bspa\\b|🇪🇸");
 
+    /** 4K and Dolby Vision: this TV's decoder fails on the first and shows nothing with the second. */
+    private static final Pattern HEAVY = Pattern.compile("2160|\\b4k\\b|\\buhd\\b|dolby ?vision|\\bdovi\\b|\\bdv\\b");
+
+    /** A 4K or Dolby Vision stream (by its name): tried only when nothing else of that kind is left. */
+    static boolean heavy(String text) {
+        return HEAVY.matcher(text.toLowerCase(Locale.ROOT)).find();
+    }
+
     /** 0 Latin American audio, 1 no Spanish audio (original), 2 Spain's Spanish audio. */
     static int audio(String text) {
         String t = text.toLowerCase(Locale.ROOT);
@@ -54,7 +62,7 @@ final class Streams {
     /** One stream to try. */
     static final class Stream {
         String url;
-        boolean spanishAudio;
+        boolean spanishAudio, heavy;
     }
 
     /** What to play: the streams to try in order (the next when one fails or is only a notice), and where you were. */
@@ -63,10 +71,87 @@ final class Streams {
         ArrayList<Stream> streams = new ArrayList<>();
         String subtitles;                   // .srt in Spanish (Latin American first), downloaded: its path, or null
         long startAt;                       // ms: where you left this movie or episode, 0 = from the start
+
+        Choice copy() {
+            Choice c = new Choice();
+            c.type = type;
+            c.id = id;
+            c.video = video;
+            c.streams = new ArrayList<>(streams);
+            c.subtitles = subtitles;
+            c.startAt = startAt;
+            return c;
+        }
     }
 
-    /** "stremio:///detail/movie/tt1" or ".../series/tt1/tt1:2:5" → the streams to play, or null (no direct one). */
+    private static final long ADDONS_FOR = 30 * 60_000L, STREAMS_FOR = 20 * 60_000L;
+    private static JSONArray addonsCache;
+    private static long addonsAt;
+    private static final java.util.Map<String, Choice> found = new java.util.HashMap<>();
+    private static final java.util.Map<String, Long> foundAt = new java.util.HashMap<>();
+
+    /** Looks a title up ahead (Continue watching), so its video starts at once when you get to it. */
+    static void prefetch(String detailLink, java.io.File cacheDir) {
+        synchronized (found) {
+            Long at = foundAt.get(detailLink);
+            if (at != null && System.currentTimeMillis() - at < STREAMS_FOR) return;
+        }
+        best(detailLink, cacheDir);
+    }
+
+    /**
+     * "stremio:///detail/movie/tt1" or ".../series/tt1/tt1:2:5" → the streams to play, or null (no direct one).
+     * The streams found in the last 20 min are reused; only your place is read again.
+     */
     static Choice best(String detailLink, java.io.File cacheDir) {
+        long t0 = System.currentTimeMillis();
+        Choice known;
+        synchronized (found) {
+            Long at = foundAt.get(detailLink);
+            known = at != null && t0 - at < STREAMS_FOR ? found.get(detailLink) : null;
+        }
+        if (known != null) {
+            try {
+                Choice c = known.copy();
+                c.startAt = startAt(libraryItem(Config.STREMIO_KEY.trim(), c.id), c.video);
+                AppLog.w("streams for " + c.video + ": known, from " + c.startAt / 1000 + " s, in " + (System.currentTimeMillis() - t0) + " ms");
+                return c;
+            } catch (Exception e) {
+                AppLog.w("streams: " + e.getMessage());
+            }
+        }
+        Choice c = find(detailLink, cacheDir);
+        if (c != null) {
+            synchronized (found) {
+                found.put(detailLink, c);
+                foundAt.put(detailLink, System.currentTimeMillis());
+            }
+            AppLog.w("streams for " + c.video + " in " + (System.currentTimeMillis() - t0) + " ms");
+            c = c.copy();
+        }
+        return c;
+    }
+
+    private static long startAt(JSONObject item, String video) {
+        JSONObject state = item == null ? null : item.optJSONObject("state");
+        return state != null && video.equals(state.optString("video_id")) ? Math.max(0, state.optLong("timeOffset")) : 0;
+    }
+
+    private static JSONArray addons(String key) throws Exception {
+        synchronized (Streams.class) {
+            if (addonsCache != null && System.currentTimeMillis() - addonsAt < ADDONS_FOR) return addonsCache;
+        }
+        JSONArray a = post("https://api.strem.io/api/addonCollectionGet",
+                new JSONObject().put("type", "AddonCollectionGet").put("authKey", key).put("update", true))
+                .getJSONObject("result").getJSONArray("addons");
+        synchronized (Streams.class) {
+            addonsCache = a;
+            addonsAt = System.currentTimeMillis();
+        }
+        return a;
+    }
+
+    private static Choice find(String detailLink, java.io.File cacheDir) {
         String key = Config.STREMIO_KEY.trim();
         String prefix = "stremio:///detail/";
         if (key.isEmpty() || detailLink == null || !detailLink.startsWith(prefix)) return null;
@@ -79,9 +164,7 @@ final class Streams {
         ExecutorService pool = Executors.newFixedThreadPool(6);
         try {
             Future<JSONObject> saved = pool.submit(() -> libraryItem(key, c.id));
-            JSONArray addons = post("https://api.strem.io/api/addonCollectionGet",
-                    new JSONObject().put("type", "AddonCollectionGet").put("authKey", key).put("update", true))
-                    .getJSONObject("result").getJSONArray("addons");
+            JSONArray addons = addons(key);
             List<String> streamAddons = new ArrayList<>(), subAddons = new ArrayList<>();
             for (int i = 0; i < addons.length(); i++) {
                 JSONObject a = addons.getJSONObject(i);
@@ -99,27 +182,44 @@ final class Streams {
             List<List<Stream>> kinds = new ArrayList<>();
             for (int k = 0; k < 3; k++) kinds.add(new ArrayList<>());
             for (Future<JSONArray> f : streams) {
-                JSONArray list = await(f);
+                // Latino in 1080p found: the add-ons after can only add streams further down the list, so no waiting
+                // for them (the ones already back still count, as spares).
+                boolean enough = false;
+                for (Stream st : kinds.get(0)) enough |= !st.heavy;
+                JSONArray list = !enough || f.isDone() ? await(f) : null;
                 for (int j = 0; list != null && j < list.length(); j++) {
                     JSONObject s = list.optJSONObject(j);
                     if (s == null || !s.optString("url").startsWith("http")) continue;
                     Stream st = new Stream();
                     st.url = s.optString("url");
-                    int a = audio(s.optString("name") + " " + s.optString("title") + " " + s.optString("description"));
+                    String text = s.optString("name") + " " + s.optString("title") + " " + s.optString("description");
+                    int a = audio(text);
                     st.spanishAudio = a != 1;
+                    st.heavy = heavy(text);
                     kinds.get(a).add(st);
                 }
             }
-            String subsUrl = spanishSubs(subs);
+            // 1080p and below first in each kind (your add-ons' order kept within each).
+            for (List<Stream> kind : kinds) {
+                List<Stream> heavy = new ArrayList<>();
+                for (java.util.Iterator<Stream> it = kind.iterator(); it.hasNext(); ) {
+                    Stream st = it.next();
+                    if (st.heavy) {
+                        heavy.add(st);
+                        it.remove();
+                    }
+                }
+                kind.addAll(heavy);
+            }
+            String subsUrl = kinds.get(0).isEmpty() ? spanishSubs(subs) : null;
             if (subsUrl != null) c.subtitles = download(subsUrl, new java.io.File(cacheDir, "subtitles.srt"));
             c.streams.addAll(kinds.get(0));
             if (c.subtitles != null) c.streams.addAll(kinds.get(1));
             c.streams.addAll(kinds.get(2));
             if (c.subtitles == null) c.streams.addAll(kinds.get(1));   // nothing in Spanish: the original anyway
-            JSONObject item = await(saved);
-            JSONObject state = item == null ? null : item.optJSONObject("state");
-            if (state != null && c.video.equals(state.optString("video_id")) && state.optLong("timeOffset") > 0)
-                c.startAt = state.optLong("timeOffset");
+            c.startAt = startAt(await(saved), c.video);
+            // The first streams' links, followed ahead (add-on → debrid → file): the player goes straight to the file.
+            for (int i = 0; i < Math.min(2, c.streams.size()); i++) c.streams.get(i).url = resolve(c.streams.get(i).url);
             AppLog.w("streams for " + c.video + ": " + kinds.get(0).size() + " latino, " + kinds.get(1).size() + " original, "
                     + kinds.get(2).size() + " Spain" + (c.subtitles != null ? ", Spanish subtitles" : "") + ", from " + c.startAt / 1000 + " s");
             return c.streams.isEmpty() ? null : c;
@@ -129,6 +229,32 @@ final class Streams {
         } finally {
             pool.shutdownNow();
         }
+    }
+
+    /** Where a link ends up after its redirects (or the link itself if that can't be known). */
+    static String resolve(String url) {
+        String at = url;
+        try {
+            for (int hop = 0; hop < 5; hop++) {
+                HttpURLConnection c = (HttpURLConnection) new URL(at).openConnection();
+                c.setInstanceFollowRedirects(false);
+                // Generous: it runs ahead, and a debrid service may take a while to hand over a file it has to fetch.
+                c.setConnectTimeout(10_000);
+                c.setReadTimeout(12_000);
+                c.setRequestProperty("Range", "bytes=0-0");
+                try {
+                    int code = c.getResponseCode();
+                    String next = c.getHeaderField("Location");
+                    if (code < 300 || code >= 400 || next == null) return at;
+                    at = new URL(new URL(at), next).toString();
+                } finally {
+                    c.disconnect();
+                }
+            }
+        } catch (Exception e) {
+            AppLog.w("resolving a stream: " + e.getMessage());
+        }
+        return at;
     }
 
     /** The best Spanish subtitles' link (Latin American first), or null. */
@@ -296,6 +422,8 @@ final class Streams {
         check(audio("Movie.2024.1080p.SPA.ENG") == 2);
         check(audio("Platinum Edition 1080p") == 1);   // "lat" only as a whole word
         check(latamSubs("spn") && latamSubs("es-419") && latamSubs("es-MX") && !latamSubs("spa") && !latamSubs("es-ES"));
+        check(heavy("Torrentio\n4k DV | HDR") && heavy("Movie.2024.2160p.WEB-DL") && heavy("UHD BluRay") && heavy("Dolby Vision"));
+        check(!heavy("1080p WEB-DL HDR10") && !heavy("720p") && !heavy("Devil.May.Cry.1080p") && !heavy("Advent"));
         check(spanish("spa") && spanish("spn") && spanish("es-419") && spanish("Spanish") && !spanish("eng") && !spanish("kor"));
         System.out.println("ok");
     }

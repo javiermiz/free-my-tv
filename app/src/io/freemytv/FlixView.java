@@ -44,6 +44,7 @@ import java.util.concurrent.Executors;
  */
 final class FlixView extends FrameLayout implements Recs.Listener, HomeData.Listener {
     private static final float MARGIN = 72, NAV_H = 120;
+    private static final float LEAD = 150;   // title rows: the card before the focused one peeks in this much
     private static final float POSTER_W = 420, POSTER_H = 630, WIDE_W = 1120, GAP = 22;   // posters 2:3; the focused card 16:9
     private static final float APP_W = 400, APP_H = 225;
     private static final float BILL_TOP = 132, BILL_H = 770;
@@ -405,7 +406,9 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
         }
         Row r = rows.get(focusRow);
         if (dx != 0) {
-            int next = Math.max(0, Math.min(r.cards.size() - 1, focusCol[focusRow] + dx));
+            int n = r.cards.size();
+            // Title rows go round (after the last, the first again); apps stop at the ends.
+            int next = r.apps ? Math.max(0, Math.min(n - 1, focusCol[focusRow] + dx)) : n < 2 ? 0 : (focusCol[focusRow] + dx + n) % n;
             if (next == focusCol[focusRow]) return;
             focusCol[focusRow] = next;
             if (r.apps) {
@@ -730,7 +733,7 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
             float x = (MARGIN + (focusCol[focusRow] - firstCol[focusRow]) * (APP_W + GAP)) * k;
             out.set(x, top, x + APP_W * k, top + APP_H * k);
         } else {
-            out.set(MARGIN * k, top, (MARGIN + WIDE_W) * k, top + POSTER_H * k);
+            out.set((MARGIN + LEAD) * k, top, (MARGIN + LEAD + WIDE_W) * k, top + POSTER_H * k);
         }
         return out;
     }
@@ -887,9 +890,16 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
         c.translate(0, dy);
         float titleY = 168 * k, top = 190 * k;
         c.drawText(r.title, MARGIN * k, titleY, rowTitle);
-        int col = focusCol[focusRow];
-        float x = (MARGIN + (r.apps ? 0 : slideX)) * k;
-        for (int i = r.apps ? firstCol[focusRow] : col; i < r.cards.size() && x < w; i++) {
+        int col = focusCol[focusRow], n = r.cards.size();
+        float x = (MARGIN + (r.apps ? 0 : LEAD + slideX)) * k;
+        if (!r.apps && n > 1) {
+            // The one before, peeking in at the left (the last one, before the first).
+            r1.set(x - (GAP + POSTER_W) * k, top, x - GAP * k, top + POSTER_H * k);
+            drawPickCard(c, r.cards.get((col - 1 + n) % n).pick, r1, false);
+        }
+        int from = r.apps ? firstCol[focusRow] : col, count = r.apps ? n - from : n - (n > 1 ? 1 : 0);
+        for (int j = 0; j < count && x < w; j++) {
+            int i = r.apps ? from + j : (col + j) % n;
             boolean on = i == col;
             Card card = r.cards.get(i);
             float cw = (r.apps ? APP_W : (on ? WIDE_W : POSTER_W)) * k;
@@ -926,8 +936,14 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
     }
 
     private void drawPeekCards(Canvas c, Row r, float top) {
-        float x = MARGIN * k;
-        for (Card card : r.cards) {
+        int n = r.cards.size(), at = rows.indexOf(r), col = r.apps || at < 0 ? 0 : Math.min(focusCol[at], Math.max(0, n - 1));
+        float x = (MARGIN + (r.apps ? 0 : LEAD)) * k;
+        if (!r.apps && n > 1) {
+            r1.set(x - (GAP + POSTER_W) * k, top, x - GAP * k, top + POSTER_H * k);
+            drawPickCard(c, r.cards.get((col - 1 + n) % n).pick, r1, false);
+        }
+        for (int j = 0; j < n - (!r.apps && n > 1 ? 1 : 0); j++) {
+            Card card = r.cards.get(r.apps ? j : (col + j) % n);
             if (x > w) break;
             float cw = (r.apps ? APP_W : POSTER_W) * k, ch = (r.apps ? APP_H : POSTER_H) * k;
             r1.set(x, top, x + cw, top + ch);

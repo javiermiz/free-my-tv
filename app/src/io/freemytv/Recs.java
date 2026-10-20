@@ -63,7 +63,7 @@ final class Recs {
     private static final String IMAGES = "https://image.tmdb.org/t/p/original";
     private static final long LIST_EVERY = 6 * 3600_000L;
     /** Bump when what is saved for each title changes (the saved list is discarded and fetched again). */
-    private static final int CACHE_VERSION = 21;
+    private static final int CACHE_VERSION = 22;
     private static final int MANHA = 0, TARDE = 1, NOITE = 2;
     static final String[] PERIOD_LABEL = {"PARA ESTA MANHÃ", "PARA ESTA TARDE", "PARA ESTA NOITE"};
     static final String[] PERIOD_LABEL_EN = {"THIS MORNING", "THIS AFTERNOON", "TONIGHT"};
@@ -284,8 +284,7 @@ final class Recs {
             o = found != null && found.length() > 0 ? found.getJSONObject(0) : new JSONObject();
             if (o.length() > 0) {
                 try {
-                    String logo = bestLogo(get("/" + (series ? "tv" : "movie") + "/" + o.optInt("id") + "/images?include_image_language="
-                            + lang().substring(0, 2) + ",en,null"));
+                    String logo = bestLogo(get("/" + (series ? "tv" : "movie") + "/" + o.optInt("id") + "/images"));
                     if (logo != null) o.put("_logo", logo);
                 } catch (Exception e) {
                     AppLog.w("logo: " + e.getMessage());
@@ -1345,7 +1344,10 @@ final class Recs {
         return best;
     }
 
-    /** The title's logo in your language, else English, else any; the best rated. PNG only (not SVG). */
+    /**
+     * The title's logo in your language, else English, else without one, else any (its original's, a Korean
+     * show's); the best rated. PNG only (not SVG).
+     */
     private static String bestLogo(JSONObject images) {
         JSONArray list = images == null ? null : images.optJSONArray("logos");
         String mine = lang().substring(0, 2), best = null;
@@ -1355,7 +1357,8 @@ final class Recs {
             String path = l == null ? "" : l.optString("file_path", "");
             if (!path.endsWith(".png")) continue;
             String in = l.optString("iso_639_1", "");
-            double score = (mine.equals(in) ? 30 : "en".equals(in) ? 20 : 10) + l.optDouble("vote_average", 0);
+            double score = (mine.equals(in) ? 40 : "en".equals(in) ? 30 : in.isEmpty() || "null".equals(in) ? 20 : 10)
+                    + l.optDouble("vote_average", 0);
             if (score > bestScore) {
                 bestScore = score;
                 best = path;
@@ -1369,7 +1372,7 @@ final class Recs {
         for (Pick p : all) {
             if (p.logo != null || p.id == 0) continue;
             try {
-                JSONObject images = get("/" + p.kind + "/" + p.id + "/images?include_image_language=" + lang().substring(0, 2) + ",en,null");
+                JSONObject images = get("/" + p.kind + "/" + p.id + "/images");   // every language: a logo in any beats none
                 p.logo = bestLogo(images);
                 String best = mostVertical(bestBackdrops(images));
                 if (best != null) p.backdrop = best;

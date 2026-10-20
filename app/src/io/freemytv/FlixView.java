@@ -108,6 +108,10 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
     private Paint navOn, navOff, navFocus, rowTitle, rowPeek, cardTitle, wideTitle, kindLabel, badge, weatherText, button, peekTitle;
     private TextPaint meta, overview, billTitle, billMeta, billOverview;
     private final RectF r1 = new RectF(), r2 = new RectF(), logoRect = new RectF();
+    private final Paint whiteLogo = new Paint(Paint.FILTER_BITMAP_FLAG);
+    {
+        whiteLogo.setColorFilter(new android.graphics.PorterDuffColorFilter(0xFFFFFFFF, android.graphics.PorterDuff.Mode.SRC_IN));
+    }
     private final java.util.Map<Bitmap, Boolean> darkLogos = new java.util.WeakHashMap<>();   // black logos don't show on the dark fade
     private final Rect src = new Rect();
     private final Path hole = new Path();
@@ -962,20 +966,21 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
     }
 
     /**
-     * The title's logo fit in w × h with its bottom at `bottom`, starting at x (or centered on it); returns its top,
-     * or NaN with no logo (none, still loading, or too dark to read): then the name is written.
+     * The title's logo fit in w × h with its bottom at `bottom`, starting at x (or centered on it), in white when
+     * it's dark (it wouldn't show on the dark fade); returns its top, or NaN with no logo (none or still loading):
+     * then the name is written.
      */
     private float drawLogo(Canvas c, Recs.Pick p, float x, float bottom, float w, float h, boolean center) {
         Bitmap logo = p.logo == null ? null : recs.image(p.logo, "w500");
-        if (logo == null || dark(logo)) return Float.NaN;
+        if (logo == null) return Float.NaN;
         float s = Math.min(w / logo.getWidth(), h / logo.getHeight()), lw = logo.getWidth() * s, lh = logo.getHeight() * s;
         float left = center ? x - lw / 2 : x;
         logoRect.set(left, bottom - lh, left + lw, bottom);
-        c.drawBitmap(logo, null, logoRect, bitmapPaint);
+        c.drawBitmap(logo, null, logoRect, dark(logo) ? whiteLogo : bitmapPaint);
         return bottom - lh;
     }
 
-    /** Mostly black (on the visible pixels): it wouldn't show on the dark fade. Worked out once per logo. */
+    /** Mostly black (on the visible pixels). Worked out once per logo. */
     private boolean dark(Bitmap logo) {
         Boolean d = darkLogos.get(logo);
         if (d != null) return d;

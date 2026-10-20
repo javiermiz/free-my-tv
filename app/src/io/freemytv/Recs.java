@@ -46,6 +46,9 @@ final class Recs {
         String title, backdrop, poster, overview = "", meta = "", app, pkg;
         String link;            // opens the title itself in the app (Stremio), or null = the app's home
         String logo;            // the title's logo (a transparent PNG), or null: its name is written instead
+        boolean logoMine;       // the logo is in your language (else the name is written under it too)
+        String year = "";       // of release or first episode
+        double rating;          // TMDB's, 0 = too few votes
         String imdb;            // from the details (not saved): to leave out what you already watched
         boolean resuming;       // Stremio's title in progress (the "Continue watching" card)
         boolean detailed;
@@ -63,7 +66,7 @@ final class Recs {
     private static final String IMAGES = "https://image.tmdb.org/t/p/original";
     private static final long LIST_EVERY = 6 * 3600_000L;
     /** Bump when what is saved for each title changes (the saved list is discarded and fetched again). */
-    private static final int CACHE_VERSION = 23;
+    private static final int CACHE_VERSION = 24;
     private static final int MANHA = 0, TARDE = 1, NOITE = 2;
     static final String[] PERIOD_LABEL = {"PARA ESTA MANHÃ", "PARA ESTA TARDE", "PARA ESTA NOITE"};
     static final String[] PERIOD_LABEL_EN = {"THIS MORNING", "THIS AFTERNOON", "TONIGHT"};
@@ -284,8 +287,7 @@ final class Recs {
             o = found != null && found.length() > 0 ? found.getJSONObject(0) : new JSONObject();
             if (o.length() > 0) {
                 try {
-                    String logo = bestLogo(get("/" + (series ? "tv" : "movie") + "/" + o.optInt("id") + "/images"));
-                    if (logo != null) o.put("_logo", logo);
+                    o.put("_images", get("/" + (series ? "tv" : "movie") + "/" + o.optInt("id") + "/images"));
                 } catch (Exception e) {
                     AppLog.w("logo: " + e.getMessage());
                 }
@@ -299,7 +301,8 @@ final class Recs {
                 p.backdrop = path(o, "backdrop_path");
                 p.poster = path(o, "poster_path");
                 p.overview = o.optString("overview", "");
-                p.logo = o.optString("_logo", "").isEmpty() ? null : o.optString("_logo");
+                setLogo(p, o.optJSONObject("_images"));
+                meta(p, o);
             }
         }
         if (p.title == null || p.title.isEmpty()) p.title = it.optString("name");
@@ -637,7 +640,15 @@ final class Recs {
         p.backdrop = backdrop;
         p.poster = path(o, "poster_path");
         p.overview = o.optString("overview", "");
+        meta(p, o);
         list.add(p);
+    }
+
+    /** Year and rating from a TMDB result or details. */
+    private static void meta(Pick p, JSONObject o) {
+        String date = o.optString("release_date", o.optString("first_air_date", ""));
+        if (date.length() >= 4) p.year = date.substring(0, 4);
+        if (o.optInt("vote_count") >= 20) p.rating = o.optDouble("vote_average", 0);
     }
 
     /** The rows under the apps. */
@@ -1245,7 +1256,8 @@ final class Recs {
         if (p.poster == null) p.poster = path(o, "poster_path");
         String best = mostVertical(bestBackdrops(o.optJSONObject("images")));
         if (best != null) p.backdrop = best;
-        p.logo = bestLogo(o.optJSONObject("images"));
+        setLogo(p, o.optJSONObject("images"));
+        meta(p, o);
         if (p.overview == null || p.overview.isEmpty()) p.overview = o.optString("overview", "");
         List<String> parts = new ArrayList<>();
         JSONArray genres = o.optJSONArray("genres");
@@ -1375,9 +1387,9 @@ final class Recs {
      * The title's logo in your language, else English, else without one, else any (its original's, a Korean
      * show's); the best rated. PNG only (not SVG).
      */
-    private static String bestLogo(JSONObject images) {
+    private static void setLogo(Pick p, JSONObject images) {
         JSONArray list = images == null ? null : images.optJSONArray("logos");
-        String mine = lang().substring(0, 2), best = null;
+        String mine = lang().substring(0, 2), best = null, bestIn = "";
         double bestScore = -1;
         for (int i = 0; list != null && i < list.length(); i++) {
             JSONObject l = list.optJSONObject(i);
@@ -1389,9 +1401,11 @@ final class Recs {
             if (score > bestScore) {
                 bestScore = score;
                 best = path;
+                bestIn = in;
             }
         }
-        return best;
+        p.logo = best;
+        p.logoMine = mine.equals(bestIn);
     }
 
     /** Logo and backdrop for the titles that came without TMDB's images (the rows from discover). */
@@ -1400,7 +1414,7 @@ final class Recs {
             if (p.logo != null || p.id == 0) continue;
             try {
                 JSONObject images = get("/" + p.kind + "/" + p.id + "/images");   // every language: a logo in any beats none
-                p.logo = bestLogo(images);
+                setLogo(p, images);
                 String best = mostVertical(bestBackdrops(images));
                 if (best != null) p.backdrop = best;
             } catch (Exception e) {
@@ -1536,7 +1550,7 @@ final class Recs {
         return new JSONObject().put("id", p.id).put("kind", p.kind).put("title", p.title).put("backdrop", p.backdrop)
                 .put("meta", p.meta).put("app", p.app == null ? "" : p.app).put("pkg", p.pkg == null ? "" : p.pkg)
                 .put("link", p.link == null ? "" : p.link).put("detailed", p.detailed)
-                .put("poster", p.poster == null ? "" : p.poster).put("logo", p.logo == null ? "" : p.logo).put("overview", p.overview == null ? "" : p.overview);
+                .put("poster", p.poster == null ? "" : p.poster).put("logo", p.logo == null ? "" : p.logo).put("logoMine", p.logoMine).put("year", p.year).put("rating", p.rating).put("overview", p.overview == null ? "" : p.overview);
     }
 
     private static List<Pick> parse(JSONArray a) {
@@ -1555,6 +1569,9 @@ final class Recs {
             p.link = o.optString("link").isEmpty() ? null : o.optString("link");
             p.poster = o.optString("poster").isEmpty() ? null : o.optString("poster");
             p.logo = o.optString("logo").isEmpty() ? null : o.optString("logo");
+            p.logoMine = o.optBoolean("logoMine");
+            p.year = o.optString("year");
+            p.rating = o.optDouble("rating", 0);
             p.overview = o.optString("overview");
             p.detailed = o.optBoolean("detailed");
             out.add(p);

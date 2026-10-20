@@ -107,7 +107,7 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
     private final Paint fill = new Paint(Paint.ANTI_ALIAS_FLAG), bitmapPaint = new Paint(Paint.FILTER_BITMAP_FLAG);
     private final Paint ring = new Paint(Paint.ANTI_ALIAS_FLAG);
     private Paint navOn, navOff, navFocus, rowTitle, rowPeek, cardTitle, wideTitle, kindLabel, badge, weatherText, button, peekTitle;
-    private TextPaint meta, overview, billTitle, billMeta, billOverview;
+    private TextPaint meta, overview, billTitle, billMeta, billOverview, nameUnder;
     private final RectF r1 = new RectF(), r2 = new RectF(), logoRect = new RectF();
     private final Paint whiteLogo = new Paint(Paint.FILTER_BITMAP_FLAG);
     {
@@ -753,6 +753,7 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
         weatherText = Ui.text(Ui.medium, 22 * k, 0xFFD4D4D8);
         button = Ui.text(Ui.semibold, 23 * k, 0xFF000000);
         meta = new TextPaint(Ui.text(Ui.medium, 23 * k, 0xFFE4E4E7));
+        nameUnder = new TextPaint(Ui.text(Ui.semibold, 28 * k, 0xFFFFFFFF));
         overview = new TextPaint(Ui.text(Ui.regular, 23 * k, 0xFFB4B4BC));
         billTitle = new TextPaint(Ui.text(Ui.displaySemibold, 92 * k, 0xFFFFFFFF));
         billMeta = new TextPaint(Ui.text(Ui.medium, 23 * k, 0xFFE4E4E7));
@@ -859,7 +860,8 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
             c.drawText(cta, x + 64 * k, r1.centerY() + Ui.halfCap(button), button);
             float y = r1.top - 30 * k;
             y = drawBlockUp(c, p.overview, billOverview, x, y, 780 * k, 3) - 18 * k;
-            y = drawBlockUp(c, p.meta, billMeta, x, y, 900 * k, 1) - 16 * k;
+            y = drawBlockUp(c, info(p), billMeta, x, y, 900 * k, 1) - 16 * k;
+            if (namedApart(p) && recs.image(p.logo, "w500") != null) y = drawBlockUp(c, p.title, nameUnder, x, y, 900 * k, 1) - 14 * k;
             float logoTop = drawLogo(c, p, x, y, 620 * k, 170 * k, false);
             y = (Float.isNaN(logoTop) ? drawBlockUp(c, p.title, billTitle, x, y, 1000 * k, 2) : logoTop) - 18 * k;
             fill.setColor(ACCENT);
@@ -921,7 +923,9 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
         float below = top + (r.apps ? APP_H : POSTER_H) * k + 52 * k;
         Card f = focused();
         if (f != null && f.pick != null) {
-            float y = drawBlockDown(c, f.pick.meta, meta, MARGIN * k, below, 1000 * k, 1) + 10 * k;
+            float y = below;
+            if (namedApart(f.pick)) y = drawBlockDown(c, f.pick.title, nameUnder, MARGIN * k, y, 1000 * k, 1) + 6 * k;
+            y = drawBlockDown(c, info(f.pick), meta, MARGIN * k, y, 1000 * k, 1) + 10 * k;
             drawBlockDown(c, f.pick.overview, overview, MARGIN * k, y, 940 * k, 2);
         } else if (f != null) {
             drawBlockDown(c, f.app.label, meta, MARGIN * k, below, 1000 * k, 1);
@@ -1030,6 +1034,26 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
             cardTitle.setColor(0xFFFFFFFF);
         }
         if (on) c.drawRoundRect(r, rad, rad, ring);
+    }
+
+    /** Its logo is in another language (a Korean show's, an English one): its name in yours goes under it too. */
+    private static boolean namedApart(Recs.Pick p) {
+        return p.logo != null && !p.logoMine;
+    }
+
+    private final java.util.Map<Recs.Pick, String> infos = new java.util.WeakHashMap<>();
+
+    /** "2025 · ★ 8.7 · Serie · Drama · 1 temporada · Stremio" (made once per title, not every frame). */
+    private String info(Recs.Pick p) {
+        String s = infos.get(p);
+        if (s != null) return s;
+        StringBuilder b = new StringBuilder();
+        if (p.year != null && !p.year.isEmpty()) b.append(p.year);
+        if (p.rating > 0) b.append(b.length() > 0 ? " · " : "").append("★ ").append(String.format(java.util.Locale.US, "%.1f", p.rating));
+        if (p.meta != null && !p.meta.isEmpty()) b.append(b.length() > 0 ? " · " : "").append(p.meta);
+        s = b.toString();
+        infos.put(p, s);
+        return s;
     }
 
     /** A pill right-aligned at `right`, baseline `base`; returns its left edge. */

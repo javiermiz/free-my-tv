@@ -43,7 +43,7 @@ final class Recs {
     static final class Pick {
         int id;
         String kind;            // "movie" or "tv"
-        String title, backdrop, meta = "", app, pkg;
+        String title, backdrop, poster, overview = "", meta = "", app, pkg;
         String link;            // opens the title itself in the app (Stremio), or null = the app's home
         String imdb;            // from the details (not saved): to leave out what you already watched
         boolean resuming;       // Stremio's title in progress (the "Continue watching" card)
@@ -62,7 +62,7 @@ final class Recs {
     private static final String IMAGES = "https://image.tmdb.org/t/p/original";
     private static final long LIST_EVERY = 6 * 3600_000L;
     /** Bump when what is saved for each title changes (the saved list is discarded and fetched again). */
-    private static final int CACHE_VERSION = 10;
+    private static final int CACHE_VERSION = 11;
     private static final int MANHA = 0, TARDE = 1, NOITE = 2;
     static final String[] PERIOD_LABEL = {"PARA ESTA MANHÃ", "PARA ESTA TARDE", "PARA ESTA NOITE"};
     static final String[] PERIOD_LABEL_EN = {"THIS MORNING", "THIS AFTERNOON", "TONIGHT"};
@@ -280,8 +280,9 @@ final class Recs {
                 JSONObject o = found.getJSONObject(0);
                 p.id = o.optInt("id");
                 p.title = o.optString(series ? "name" : "title");
-                String b = o.optString("backdrop_path", "");
-                if (!b.isEmpty() && !b.equals("null")) p.backdrop = b;
+                p.backdrop = path(o, "backdrop_path");
+                p.poster = path(o, "poster_path");
+                p.overview = o.optString("overview", "");
             }
         }
         if (p.title == null || p.title.isEmpty()) p.title = it.optString("name");
@@ -607,6 +608,8 @@ final class Recs {
         p.kind = kind;
         p.title = o.optString(kind.equals("movie") ? "title" : "name");
         p.backdrop = backdrop;
+        p.poster = path(o, "poster_path");
+        p.overview = o.optString("overview", "");
         list.add(p);
     }
 
@@ -750,8 +753,13 @@ final class Recs {
 
     /** A row card's image (TMDB's 500 px backdrop, kept on disk), or null while it loads. */
     Bitmap thumb(Pick p) {
-        if (p == null || p.backdrop == null) return null;
-        final String key = p.backdrop;
+        return p == null ? null : image(p.backdrop, "w500");
+    }
+
+    /** A TMDB image at a size ("w342" poster, "w780" or "w1280" backdrop), kept on disk; null while it loads. */
+    Bitmap image(final String imagePath, final String size) {
+        if (imagePath == null) return null;
+        final String key = size + imagePath;
         synchronized (thumbs) {
             Bitmap b = thumbs.get(key);
             if (b != null) return b;
@@ -759,11 +767,11 @@ final class Recs {
         }
         thumbIo.execute(() -> {
             try {
-                File f = new File(new File(context.getCacheDir(), "thumbs"), key.replace("/", ""));
+                File f = new File(new File(context.getCacheDir(), "thumbs"), key.replace("/", "_"));
                 if (!f.exists()) {
                     //noinspection ResultOfMethodCallIgnored
                     f.getParentFile().mkdirs();
-                    HttpURLConnection c = (HttpURLConnection) new URL("https://image.tmdb.org/t/p/w500" + key).openConnection();
+                    HttpURLConnection c = (HttpURLConnection) new URL("https://image.tmdb.org/t/p/" + size + imagePath).openConnection();
                     c.setConnectTimeout(8000);
                     c.setReadTimeout(15000);
                     File part = new File(f.getPath() + ".part");
@@ -782,8 +790,8 @@ final class Recs {
                 if (b == null) throw new IOException("unreadable image");
                 synchronized (thumbs) {
                     thumbs.put(key, b);
-                    // ponytail: simple insertion-order cap; an LRU only if rows grow past ~100 cards.
-                    while (thumbs.size() > 100) thumbs.remove(thumbs.keySet().iterator().next());
+                    // ponytail: simple insertion-order cap; an LRU only if rows grow past ~120 images.
+                    while (thumbs.size() > 120) thumbs.remove(thumbs.keySet().iterator().next());
                 }
                 notifyListeners();
             } catch (Exception e) {
@@ -793,6 +801,55 @@ final class Recs {
             }
         });
         return null;
+    }
+
+    /** Stremio's title in progress, or null. */
+    Pick resume() {
+        return resume;
+    }
+
+    private final ExecutorService trailerIo = Executors.newSingleThreadExecutor();
+    private final Map<String, String> trailers = new HashMap<>();   // pick key → YouTube id ("" = none)
+
+    /** The pick's trailer on YouTube (TMDB videos: your language first, then English); `done` gets null if none. */
+    void trailer(final Pick p, final java.util.function.Consumer<String> done) {
+        if (p == null || p.id == 0 || "app".equals(p.kind) || !hasKey(context)) {
+            done.accept(null);
+            return;
+        }
+        final String k = key(p);
+        synchronized (trailers) {
+            if (trailers.containsKey(k)) {
+                String v = trailers.get(k);
+                done.accept(v.isEmpty() ? null : v);
+                return;
+            }
+        }
+        trailerIo.execute(() -> {
+            String found = "";
+            try {
+                for (String l : new String[] {lang(), "en-US"}) {
+                    JSONArray v = get("/" + p.kind + "/" + p.id + "/videos?language=" + l).getJSONArray("results");
+                    int best = -1;
+                    for (int i = 0; i < v.length(); i++) {
+                        JSONObject o = v.getJSONObject(i);
+                        if (!"YouTube".equals(o.optString("site"))) continue;
+                        int score = ("Trailer".equals(o.optString("type")) ? 2 : "Teaser".equals(o.optString("type")) ? 1 : 0)
+                                + (o.optBoolean("official") ? 1 : 0);
+                        if (score > best) {
+                            best = score;
+                            found = o.optString("key");
+                        }
+                    }
+                    if (!found.isEmpty()) break;
+                }
+            } catch (Exception e) {
+                AppLog.w("trailer: " + e.getMessage());
+            }
+            final String result = found;
+            synchronized (trailers) { trailers.put(k, result); }
+            main.post(() -> done.accept(result.isEmpty() ? null : result));
+        });
     }
 
     /**
@@ -842,12 +899,20 @@ final class Recs {
         return out;
     }
 
+    /** An image path from a TMDB result ("/abc.jpg"), or null. */
+    private static String path(JSONObject o, String key) {
+        String v = o.optString(key, "");
+        return v.isEmpty() || v.equals("null") ? null : v;
+    }
+
     /** Genre, runtime (or seasons) and the service it's on, among the ones the TV has. */
     private void fetchDetails(Pick p) throws Exception {
         JSONObject o = get("/" + p.kind + "/" + p.id
                 + "?language=" + lang() + "&append_to_response=watch/providers,images,external_ids&include_image_language=null,pt,en");
         String best = bestBackdrop(o.optJSONObject("images"));
         if (best != null) p.backdrop = best;
+        if (p.poster == null) p.poster = path(o, "poster_path");
+        if (p.overview == null || p.overview.isEmpty()) p.overview = o.optString("overview", "");
         List<String> parts = new ArrayList<>();
         JSONArray genres = o.optJSONArray("genres");
         if (p.kind.equals("tv")) parts.add(Ui.tr("Série", "Series"));
@@ -1057,7 +1122,8 @@ final class Recs {
     private static JSONObject json(Pick p) throws org.json.JSONException {
         return new JSONObject().put("id", p.id).put("kind", p.kind).put("title", p.title).put("backdrop", p.backdrop)
                 .put("meta", p.meta).put("app", p.app == null ? "" : p.app).put("pkg", p.pkg == null ? "" : p.pkg)
-                .put("link", p.link == null ? "" : p.link).put("detailed", p.detailed);
+                .put("link", p.link == null ? "" : p.link).put("detailed", p.detailed)
+                .put("poster", p.poster == null ? "" : p.poster).put("overview", p.overview == null ? "" : p.overview);
     }
 
     private static List<Pick> parse(JSONArray a) {
@@ -1074,6 +1140,8 @@ final class Recs {
             p.app = o.optString("app").isEmpty() ? null : o.optString("app");
             p.pkg = o.optString("pkg").isEmpty() ? null : o.optString("pkg");
             p.link = o.optString("link").isEmpty() ? null : o.optString("link");
+            p.poster = o.optString("poster").isEmpty() ? null : o.optString("poster");
+            p.overview = o.optString("overview");
             p.detailed = o.optBoolean("detailed");
             out.add(p);
         }

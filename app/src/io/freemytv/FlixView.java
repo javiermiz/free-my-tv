@@ -1,0 +1,907 @@
+package io.freemytv;
+
+import android.annotation.SuppressLint;
+import android.app.Activity;
+import android.content.Context;
+import android.graphics.Bitmap;
+import android.graphics.Canvas;
+import android.graphics.LinearGradient;
+import android.graphics.Paint;
+import android.graphics.Path;
+import android.graphics.Rect;
+import android.graphics.RectF;
+import android.graphics.Shader;
+import android.os.Handler;
+import android.os.Looper;
+import android.text.Layout;
+import android.text.StaticLayout;
+import android.text.TextPaint;
+import android.text.TextUtils;
+import android.view.KeyEvent;
+import android.view.View;
+import android.view.animation.DecelerateInterpolator;
+import android.webkit.JavascriptInterface;
+import android.webkit.WebChromeClient;
+import android.webkit.WebSettings;
+import android.webkit.WebView;
+import android.widget.FrameLayout;
+import android.widget.Toast;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+
+/**
+ * The home screen, laid out like today's streaming TV apps: a featured title on top, then rows of vertical posters.
+ * Moving down brings a row to the top; the focused title is always first in its row, widened to 16:9, and after a
+ * moment its trailer (YouTube, muted) plays inside it. Its details sit below the row. At the end: your apps, the
+ * rest of the apps, and inputs and settings.
+ *
+ * Drawn by hand on one Canvas (in a 1920×1080 space, k = width / 1920); the trailer is a WebView underneath, showing
+ * through a hole the Canvas leaves where the card is.
+ */
+final class FlixView extends FrameLayout implements Recs.Listener, HomeData.Listener {
+    private static final float MARGIN = 72, NAV_H = 120;
+    private static final float POSTER_W = 200, POSTER_H = 300, WIDE_W = 534, GAP = 16;
+    private static final float APP_W = 300, APP_H = 169, APP_WIDE_W = 360, APP_WIDE_H = 203;
+    private static final float BILL_TOP = 132, BILL_H = 640;
+    private static final long TRAILER_DELAY = 1500;
+    private static final int ACCENT = 0xFFF5A524;
+    private static final String[] TAB_KIND = {null, "tv", "movie"};
+    private static final ExecutorService LOADER = Executors.newSingleThreadExecutor();
+
+    static final class Card {
+        Recs.Pick pick;
+        HomeApps.Item app;
+    }
+
+    static final class Row {
+        String title;
+        final List<Card> cards = new ArrayList<>();
+        boolean apps, shelf, others;
+    }
+
+    private final Activity activity;
+    private final Recs recs;
+    private final HomeData data;
+    private final Click click;
+    private final Handler handler = new Handler(Looper.getMainLooper());
+    private final Screen screen;
+    private final FrameLayout trailerBox;
+    private final WebView web;
+    private float k = 1;
+    private int w, h;
+    private boolean running;
+
+    private List<Row> rows = new ArrayList<>();
+    private Recs.Pick featured;
+    private String signature = "";
+    private List<HomeApps.Item> shelf = new ArrayList<>(), others = new ArrayList<>(), extras = new ArrayList<>();
+
+    /** -2 = the menu on top, -1 = the featured title, 0.. = a row. */
+    private int focusRow = -1, navIndex, tab;
+    private int[] focusCol = new int[0];
+    private float slideX, slideY;
+    private android.animation.ValueAnimator slider;
+    private boolean okDown, okLong, moving;
+
+    // The trailer playing (or about to) and where.
+    private String trailerKey;
+    private boolean trailerOn;
+    private final RectF trailerRect = new RectF();
+    private final Runnable trailerStart = this::fetchTrailer;
+
+    private final Paint fill = new Paint(Paint.ANTI_ALIAS_FLAG), bitmapPaint = new Paint(Paint.FILTER_BITMAP_FLAG);
+    private final Paint ring = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private Paint navOn, navOff, navFocus, rowTitle, rowPeek, cardTitle, wideTitle, kindLabel, badge, weatherText, button, peekTitle;
+    private TextPaint meta, overview, billTitle, billMeta, billOverview;
+    private final RectF r1 = new RectF(), r2 = new RectF();
+    private final Rect src = new Rect();
+    private final Path hole = new Path();
+
+    private final Runnable tick = new Runnable() {
+        @Override public void run() {
+            if (!running) return;
+            data.refreshIfStale();
+            recs.refreshIfStale();
+            rebuild(false);
+            screen.invalidate();
+            handler.postDelayed(this, 15_000);
+        }
+    };
+
+    @SuppressLint("SetJavaScriptEnabled")
+    FlixView(Activity a) {
+        super(a);
+        activity = a;
+        recs = Recs.get(a);
+        data = HomeData.get(a);
+        click = new Click(a);
+        setBackgroundColor(0xFF000000);
+        trailerBox = new FrameLayout(a);
+        trailerBox.setClipChildren(true);
+        web = new WebView(a);
+        web.setBackgroundColor(0xFF000000);
+        web.setFocusable(false);
+        web.setFocusableInTouchMode(false);
+        WebSettings s = web.getSettings();
+        s.setJavaScriptEnabled(true);
+        s.setMediaPlaybackRequiresUserGesture(false);
+        s.setDomStorageEnabled(true);
+        web.setWebChromeClient(new WebChromeClient());
+        web.addJavascriptInterface(new Bridge(), "FreeMyTV");
+        trailerBox.addView(web, new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT));
+        trailerBox.setAlpha(0);
+        addView(trailerBox, new LayoutParams(1, 1));
+        screen = new Screen(a);
+        addView(screen, new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT));
+        shelf = HomeApps.shelf(a, false);
+        rebuild(true);
+    }
+
+    /** Spanish when the app is set to Spanish (or the TV is, on "auto"); otherwise English. */
+    private static String es(String spanish, String english) {
+        String lang = Config.LANGUAGE.trim().toLowerCase(Locale.ROOT);
+        boolean es = lang.startsWith("es") || (lang.equals("auto") && "es".equals(Locale.getDefault().getLanguage()));
+        return es ? spanish : english;
+    }
+
+    // MARK: - Lifecycle (called by HomeActivity)
+
+    void resume() {
+        if (running) return;
+        running = true;
+        recs.addListener(this);
+        data.addListener(this);
+        recs.refreshIfStale();
+        data.refreshIfStale();
+        reloadApps();
+        rebuild(false);
+        handler.postDelayed(tick, 15_000);
+        scheduleTrailer();
+        screen.invalidate();
+    }
+
+    void pause() {
+        if (!running) return;
+        running = false;
+        handler.removeCallbacks(tick);
+        recs.removeListener(this);
+        data.removeListener(this);
+        stopTrailer();
+    }
+
+    void destroy() {
+        pause();
+        click.release();
+        web.destroy();
+    }
+
+    /** Home pressed while on the home screen: back to the featured title, on the first tab. */
+    void reset() {
+        moving = false;
+        focusRow = -1;
+        if (tab != 0) {
+            tab = 0;
+            navIndex = 0;
+            rebuild(true);
+        }
+        for (int i = 0; i < focusCol.length; i++) focusCol[i] = 0;
+        slideX = slideY = 0;
+        scheduleTrailer();
+        screen.invalidate();
+    }
+
+    @Override public void onRecs() {
+        rebuild(false);
+        screen.invalidate();
+    }
+
+    @Override public void onData() {
+        screen.invalidate();
+    }
+
+    // MARK: - Rows
+
+    private void reloadApps() {
+        final Context c = getContext().getApplicationContext();
+        LOADER.execute(() -> {
+            final List<HomeApps.Item> s = HomeApps.shelf(c, true);
+            final List<HomeApps.Item> o = HomeApps.others(c);
+            final List<HomeApps.Item> x = new ArrayList<>(HomeApps.allInputs(c));
+            x.add(HomeApps.settings());
+            x.add(HomeApps.action(HomeApps.ANDROID_SETTINGS, "tv-settings", es("Ajustes de la TV", "TV Settings"), "tv_settings"));
+            handler.post(() -> {
+                shelf = s;
+                others = o;
+                extras = x;
+                rebuild(true);
+                screen.invalidate();
+            });
+        });
+    }
+
+    /** Rows for the current tab; rebuilt only when what they hold changed (`force`: always). */
+    private void rebuild(boolean force) {
+        String kind = TAB_KIND[tab];
+        List<Row> out = new ArrayList<>();
+        Recs.Pick resume = recs.resume();
+        if (resume != null && (kind == null || kind.equals(resume.kind))) {
+            Row r = row(out, es("Continuar viendo", "Continue watching"));
+            r.cards.add(card(resume));
+        }
+        List<Recs.Pick> mine = new ArrayList<>();
+        for (Recs.Pick p : recs.now(kind)) if (!p.resuming && p.pkg != null) mine.add(p);
+        featured = mine.isEmpty() ? resume : mine.get(0);
+        if (!mine.isEmpty()) {
+            Row r = row(out, es("Para ti", "For you"));
+            for (Recs.Pick p : mine) r.cards.add(card(p));
+        }
+        for (Recs.Row rr : recs.rows()) {
+            Row r = new Row();
+            r.title = rr.title.replace("Trending on ", es("Tendencias en ", "Trending on "));
+            for (Recs.Pick p : rr.picks) if (kind == null || kind.equals(p.kind)) r.cards.add(card(p));
+            if (!r.cards.isEmpty()) out.add(r);
+        }
+        if (tab == 0) {
+            appRow(out, es("Tus apps", "Your apps"), shelf).shelf = true;
+            appRow(out, es("Más apps", "More apps"), others).others = true;
+            appRow(out, es("Entradas y ajustes", "Inputs and settings"), extras);
+        }
+        StringBuilder sig = new StringBuilder(String.valueOf(tab));
+        for (Row r : out) {
+            sig.append('|').append(r.title);
+            for (Card c : r.cards) sig.append(',').append(c.pick != null ? Recs.key(c.pick) + c.pick.backdrop : c.app.key);
+        }
+        if (!force && sig.toString().equals(signature)) return;
+        signature = sig.toString();
+        int[] cols = new int[out.size()];
+        for (int i = 0; i < cols.length && i < focusCol.length; i++) cols[i] = Math.min(focusCol[i], out.get(i).cards.size() - 1);
+        rows = out;
+        focusCol = cols;
+        if (focusRow >= rows.size()) focusRow = rows.size() - 1;
+    }
+
+    private static Row row(List<Row> out, String title) {
+        Row r = new Row();
+        r.title = title;
+        out.add(r);
+        return r;
+    }
+
+    private static Row appRow(List<Row> out, String title, List<HomeApps.Item> items) {
+        Row r = new Row();
+        r.title = title;
+        r.apps = true;
+        for (HomeApps.Item it : items) {
+            Card c = new Card();
+            c.app = it;
+            r.cards.add(c);
+        }
+        if (!items.isEmpty()) out.add(r);
+        return r;
+    }
+
+    private static Card card(Recs.Pick p) {
+        Card c = new Card();
+        c.pick = p;
+        return c;
+    }
+
+    private Card focused() {
+        if (focusRow < 0 || focusRow >= rows.size()) return null;
+        Row r = rows.get(focusRow);
+        return r.cards.isEmpty() ? null : r.cards.get(Math.min(focusCol[focusRow], r.cards.size() - 1));
+    }
+
+    // MARK: - Keys
+
+    boolean onKey(KeyEvent e) {
+        boolean down = e.getAction() == KeyEvent.ACTION_DOWN;
+        switch (e.getKeyCode()) {
+            case KeyEvent.KEYCODE_DPAD_LEFT: if (down) move(-1, 0); return true;
+            case KeyEvent.KEYCODE_DPAD_RIGHT: if (down) move(1, 0); return true;
+            case KeyEvent.KEYCODE_DPAD_UP: if (down) move(0, -1); return true;
+            case KeyEvent.KEYCODE_DPAD_DOWN: if (down) move(0, 1); return true;
+            case KeyEvent.KEYCODE_DPAD_CENTER:
+            case KeyEvent.KEYCODE_ENTER:
+            case KeyEvent.KEYCODE_NUMPAD_ENTER:
+                // Opens on release, and only if the press happened here; held: the app menu (move, remove, add).
+                if (down) {
+                    if (e.getRepeatCount() == 0) okDown = true;
+                    else if (okDown && e.getRepeatCount() >= 1) okLong = true;
+                } else {
+                    if (moving) moving = false;
+                    else if (okDown && okLong) { if (!editMenu()) activate(); }
+                    else if (okDown && !e.isCanceled()) activate();
+                    okDown = okLong = false;
+                    screen.invalidate();
+                }
+                return true;
+            case KeyEvent.KEYCODE_BACK:
+                if (!down) return true;
+                if (moving) moving = false;
+                else if (focusRow >= 0 || focusRow == -2) focusRow = -1;
+                else if (tab != 0) selectTab(0);
+                else return true;
+                changed(0, 0);
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    private void move(int dx, int dy) {
+        if (moving && focusRow >= 0 && rows.get(focusRow).shelf) {
+            moveShelfApp(dx);
+            return;
+        }
+        if (focusRow == -2) {
+            if (dx != 0) {
+                int next = Math.max(0, Math.min(TAB_KIND.length - 1, navIndex + dx));
+                if (next == navIndex) return;
+                navIndex = next;
+                selectTab(next);
+            } else if (dy > 0) {
+                focusRow = -1;
+            } else {
+                return;
+            }
+            changed(0, 0);
+            return;
+        }
+        if (focusRow == -1) {
+            if (dy < 0) {
+                focusRow = -2;
+                navIndex = tab;
+            } else if (dy > 0 && !rows.isEmpty()) {
+                focusRow = 0;
+                changed(0, 1);
+                return;
+            } else {
+                return;
+            }
+            changed(0, 0);
+            return;
+        }
+        Row r = rows.get(focusRow);
+        if (dx != 0) {
+            int next = Math.max(0, Math.min(r.cards.size() - 1, focusCol[focusRow] + dx));
+            if (next == focusCol[focusRow]) return;
+            focusCol[focusRow] = next;
+            changed(dx, 0);
+        } else if (dy < 0) {
+            focusRow--;
+            changed(0, -1);
+        } else if (dy > 0 && focusRow < rows.size() - 1) {
+            focusRow++;
+            changed(0, 1);
+        }
+    }
+
+    private void selectTab(int index) {
+        tab = index;
+        navIndex = index;
+        for (int i = 0; i < focusCol.length; i++) focusCol[i] = 0;
+        rebuild(true);
+    }
+
+    /** Focus moved: slide the row (dx) or the rows (dy) into place, click, and line up the next trailer. */
+    private void changed(int dx, int dy) {
+        if (slider != null) slider.cancel();
+        Row r = focusRow >= 0 && focusRow < rows.size() ? rows.get(focusRow) : null;
+        float step = r != null && r.apps ? APP_W + GAP : POSTER_W + GAP;
+        final float fromX = dx > 0 ? (r != null && r.apps ? APP_WIDE_W : WIDE_W) + GAP : dx < 0 ? -step : 0;
+        final float fromY = dy * 300f;
+        if (fromX != 0 || fromY != 0) {
+            slider = android.animation.ValueAnimator.ofFloat(1, 0);
+            slider.setDuration(220);
+            slider.setInterpolator(new DecelerateInterpolator(1.6f));
+            slider.addUpdateListener(v -> {
+                float f = (float) v.getAnimatedValue();
+                slideX = fromX * f;
+                slideY = fromY * f;
+                screen.invalidate();
+            });
+            slider.start();
+        }
+        click.move();
+        scheduleTrailer();
+        screen.invalidate();
+    }
+
+    private void activate() {
+        HomeApps.Item it;
+        RectF r = new RectF(MARGIN * k, 190 * k, (MARGIN + WIDE_W) * k, (190 + POSTER_H) * k);
+        if (focusRow == -2) {
+            focusRow = -1;
+            changed(0, 0);
+            return;
+        } else if (focusRow == -1) {
+            if (featured == null || featured.pkg == null) return;
+            it = HomeApps.app(featured.pkg, Recs.serviceName(featured));
+            it.link = featured.link;
+        } else {
+            Card c = focused();
+            if (c == null) return;
+            if (c.pick != null) {
+                if (c.pick.pkg == null) return;
+                it = HomeApps.app(c.pick.pkg, Recs.serviceName(c.pick));
+                it.link = c.pick.link;
+            } else {
+                it = c.app;
+            }
+        }
+        click.open();
+        stopTrailer();
+        if (!HomeApps.open(activity, it, this, Math.round(r.left), Math.round(r.top), Math.round(r.width()), Math.round(r.height())))
+            Toast.makeText(activity, es("No se pudo abrir ", "Couldn't open ") + it.label, Toast.LENGTH_SHORT).show();
+    }
+
+    // MARK: - Editing your apps (long press OK on an app)
+
+    private boolean editMenu() {
+        Card c = focused();
+        if (c == null || c.app == null || c.app.kind != HomeApps.APP || c.app.pkg == null) return false;
+        final HomeApps.Item it = c.app;
+        final Context ctx = getContext();
+        final List<String> pkgs = HomeApps.shelfPackages(ctx);
+        final int at = pkgs.indexOf(it.pkg);
+        List<String> labels = new ArrayList<>();
+        final List<Runnable> actions = new ArrayList<>();
+        if (at < 0) {
+            labels.add(es("Agregar a Tus apps", "Add to Your apps"));
+            actions.add(() -> {
+                if (pkgs.size() >= HomeApps.MAX_SHELF) {
+                    Toast.makeText(ctx, es("Ya tienes " + HomeApps.MAX_SHELF + " apps: quita una primero.",
+                            "You already have " + HomeApps.MAX_SHELF + " apps: remove one first."), Toast.LENGTH_LONG).show();
+                    return;
+                }
+                pkgs.add(it.pkg);
+                HomeApps.saveShelf(ctx, pkgs);
+                reloadApps();
+            });
+        } else {
+            labels.add(es("Mover", "Move"));
+            actions.add(() -> {
+                moving = true;
+                Toast.makeText(ctx, es("← → para moverla, OK para terminar.", "← → to move it, OK when done."), Toast.LENGTH_LONG).show();
+            });
+            labels.add(es("Quitar de Tus apps", "Remove from Your apps"));
+            actions.add(() -> {
+                pkgs.remove(at);
+                HomeApps.saveShelf(ctx, pkgs);
+                reloadApps();
+            });
+        }
+        labels.add(es("Cancelar", "Cancel"));
+        actions.add(() -> {});
+        new android.app.AlertDialog.Builder(activity, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                .setTitle(it.label)
+                .setItems(labels.toArray(new String[0]), (d, which) -> actions.get(which).run())
+                .show();
+        return true;
+    }
+
+    private void moveShelfApp(int dx) {
+        int col = focusCol[focusRow], to = col + dx;
+        if (dx == 0 || to < 0 || to >= shelf.size()) return;
+        List<HomeApps.Item> list = new ArrayList<>(shelf);
+        java.util.Collections.swap(list, col, to);
+        List<String> pkgs = new ArrayList<>();
+        for (HomeApps.Item i : list) pkgs.add(i.pkg);
+        HomeApps.saveShelf(getContext(), pkgs);
+        shelf = list;
+        rebuild(true);
+        focusCol[focusRow] = to;
+        changed(dx, 0);
+    }
+
+    // MARK: - Trailer: a muted YouTube player under the focused card, shown once it really plays
+
+    private Recs.Pick trailerPick() {
+        if (focusRow == -1) return featured;
+        Card c = focused();
+        return c == null ? null : c.pick;
+    }
+
+    private void scheduleTrailer() {
+        stopTrailer();
+        if (running && trailerPick() != null) handler.postDelayed(trailerStart, TRAILER_DELAY);
+    }
+
+    private void fetchTrailer() {
+        final Recs.Pick p = trailerPick();
+        if (p == null) return;
+        recs.trailer(p, key -> {
+            if (key == null || !running || p != trailerPick()) return;
+            trailerKey = key;
+            RectF r = focusRow == -1 ? billboardRect(new RectF()) : wideCardRect(new RectF());
+            trailerRect.set(r);
+            // The player is a bit taller than the card: YouTube's title strip and logo fall outside it.
+            float extra = r.height() * 0.18f;
+            LayoutParams lp = new LayoutParams(Math.round(r.width()), Math.round(r.height()));
+            lp.leftMargin = Math.round(r.left);
+            lp.topMargin = Math.round(r.top);
+            trailerBox.setLayoutParams(lp);
+            LayoutParams wl = new LayoutParams(Math.round(r.width() * 1.18f), Math.round(r.height() + 2 * extra));
+            wl.leftMargin = -Math.round(r.width() * 0.09f);
+            wl.topMargin = -Math.round(extra);
+            web.setLayoutParams(wl);
+            web.loadDataWithBaseURL("https://freemytv.io/", player(key), "text/html", "utf-8", null);
+        });
+    }
+
+    private void stopTrailer() {
+        handler.removeCallbacks(trailerStart);
+        if (trailerKey != null) web.loadUrl("about:blank");
+        trailerKey = null;
+        trailerOn = false;
+        trailerBox.setAlpha(0);
+        screen.invalidate();
+    }
+
+    private static String player(String key) {
+        return "<!doctype html><html><head><meta name=viewport content='width=device-width,initial-scale=1'>"
+                + "<style>html,body,#p{margin:0;width:100%;height:100%;background:#000;overflow:hidden}</style></head><body>"
+                + "<div id=p></div><script src='https://www.youtube.com/iframe_api'></script><script>"
+                + "function onYouTubeIframeAPIReady(){new YT.Player('p',{width:'100%',height:'100%',videoId:'" + key + "',"
+                + "playerVars:{autoplay:1,mute:1,controls:0,disablekb:1,fs:0,rel:0,playsinline:1,iv_load_policy:3,"
+                + "cc_load_policy:0,loop:1,playlist:'" + key + "'},events:{"
+                + "onReady:function(e){e.target.mute();e.target.playVideo();},"
+                + "onStateChange:function(e){if(e.data==1)FreeMyTV.playing();},"
+                + "onError:function(e){FreeMyTV.failed();}}});}</script></body></html>";
+    }
+
+    private final class Bridge {
+        @JavascriptInterface public void playing() {
+            handler.post(() -> {
+                if (trailerKey == null) return;
+                trailerOn = true;
+                trailerBox.animate().alpha(1).setDuration(400).start();
+                screen.invalidate();
+            });
+        }
+
+        @JavascriptInterface public void failed() {
+            handler.post(FlixView.this::stopTrailer);
+        }
+    }
+
+    // MARK: - Layout
+
+    private RectF billboardRect(RectF out) {
+        out.set(MARGIN * k, BILL_TOP * k, w - MARGIN * k, (BILL_TOP + BILL_H) * k);
+        return out;
+    }
+
+    private RectF wideCardRect(RectF out) {
+        Row r = rows.get(focusRow);
+        float top = 190 * k;
+        out.set(MARGIN * k, top, (MARGIN + (r.apps ? APP_WIDE_W : WIDE_W)) * k, top + (r.apps ? APP_WIDE_H : POSTER_H) * k);
+        return out;
+    }
+
+    private void makePaints() {
+        navOn = Ui.text(Ui.semibold, 24 * k, 0xFFFFFFFF);
+        navOff = Ui.text(Ui.semibold, 24 * k, 0xFFB4B4BC);
+        navFocus = Ui.text(Ui.semibold, 24 * k, 0xFF000000);
+        rowTitle = Ui.text(Ui.semibold, 30 * k, 0xFFFFFFFF);
+        rowPeek = Ui.text(Ui.semibold, 28 * k, 0xFFA1A1AA);
+        cardTitle = Ui.text(Ui.semibold, 21 * k, 0xFFFFFFFF);
+        peekTitle = Ui.text(Ui.semibold, 19 * k, 0xFFFFFFFF);
+        wideTitle = Ui.text(Ui.displaySemibold, 42 * k, 0xFFFFFFFF);
+        kindLabel = Ui.text(Ui.semibold, 15 * k, 0xFFE4E4E7);
+        kindLabel.setLetterSpacing(0.22f);
+        badge = Ui.text(Ui.semibold, 16 * k, 0xFFFFFFFF);
+        weatherText = Ui.text(Ui.medium, 22 * k, 0xFFD4D4D8);
+        button = Ui.text(Ui.semibold, 23 * k, 0xFF000000);
+        meta = new TextPaint(Ui.text(Ui.medium, 23 * k, 0xFFE4E4E7));
+        overview = new TextPaint(Ui.text(Ui.regular, 23 * k, 0xFFB4B4BC));
+        billTitle = new TextPaint(Ui.text(Ui.displaySemibold, 92 * k, 0xFFFFFFFF));
+        billMeta = new TextPaint(Ui.text(Ui.medium, 23 * k, 0xFFE4E4E7));
+        billOverview = new TextPaint(Ui.text(Ui.regular, 23 * k, 0xFFD4D4D8));
+        ring.setStyle(Paint.Style.STROKE);
+        ring.setStrokeWidth(4 * k);
+        ring.setColor(0xFFFFFFFF);
+    }
+
+    // MARK: - Drawing
+
+    private final class Screen extends View {
+        Screen(Context c) {
+            super(c);
+        }
+
+        @Override protected void onSizeChanged(int width, int height, int ow, int oh) {
+            w = width;
+            h = height;
+            k = width / 1920f;
+            makePaints();
+        }
+
+        @Override protected void onDraw(Canvas c) {
+            if (navOn == null) return;
+            // Black everywhere but the playing trailer, which shows through from the WebView underneath.
+            if (trailerOn) {
+                float rr = (focusRow == -1 ? 22 : 12) * k;
+                hole.reset();
+                hole.setFillType(Path.FillType.EVEN_ODD);
+                hole.addRect(0, 0, w, h, Path.Direction.CW);
+                hole.addRoundRect(trailerRect, rr, rr, Path.Direction.CW);
+                fill.setShader(null);
+                fill.setColor(0xFF000000);
+                c.drawPath(hole, fill);
+            } else {
+                c.drawColor(0xFF000000);
+            }
+            if (focusRow < 0) drawHome(c); else drawRows(c);
+            drawNav(c);
+        }
+    }
+
+    private void drawNav(Canvas c) {
+        String[] tabs = {es("Inicio", "Home"), es("Series", "Shows"), es("Películas", "Movies")};
+        float total = 0, pad = 22 * k, gap = 10 * k;
+        for (String t : tabs) total += navOn.measureText(t) + 2 * pad + gap;
+        float x = (w - total) / 2f, cy = NAV_H / 2f * k;
+        for (int i = 0; i < tabs.length; i++) {
+            float tw = navOn.measureText(tabs[i]) + 2 * pad;
+            r1.set(x, cy - 26 * k, x + tw, cy + 26 * k);
+            boolean focus = focusRow == -2 && navIndex == i;
+            if (focus || i == tab) {
+                fill.setShader(null);
+                fill.setColor(focus ? 0xFFFFFFFF : 0x29FFFFFF);
+                c.drawRoundRect(r1, 26 * k, 26 * k, fill);
+            }
+            Paint p = focus ? navFocus : i == tab ? navOn : navOff;
+            c.drawText(tabs[i], x + pad, cy + Ui.halfCap(p), p);
+            x += tw + gap;
+        }
+        // Weather and time, right.
+        HomeData.Weather wx = data.weather;
+        String right = Ui.time(System.currentTimeMillis()).toLowerCase(Locale.ROOT);
+        if (!Double.isNaN(wx.temp)) {
+            String city = Config.CITY.trim();
+            right = HomeData.degrees(wx.temp) + (city.isEmpty() ? "" : "  " + city) + "   ·   " + right;
+        }
+        float rx = w - MARGIN * k - weatherText.measureText(right);
+        c.drawText(right, rx, cy + Ui.halfCap(weatherText), weatherText);
+        if (!Double.isNaN(wx.temp)) {
+            float size = 30 * k;
+            Symbols.draw(getContext(), c, Symbols.weather(wx.code, wx.isDay), rx - 14 * k - size / 2, cy, size, 0xFFD4D4D8);
+        }
+    }
+
+    /** The featured title in a big rounded card, with the first row peeking below. */
+    private void drawHome(Canvas c) {
+        float dy = slideY * k;
+        c.save();
+        c.translate(0, dy);
+        RectF b = billboardRect(r2);
+        float rad = 22 * k;
+        Recs.Pick p = featured;
+        if (!trailerOn) {
+            Bitmap img = p == null ? null : recs.image(p.backdrop, "w1280");
+            drawCover(c, img, b, rad, 0xFF1C1C1F);
+        }
+        fill.setShader(new LinearGradient(b.left, 0, b.left + b.width() * 0.62f, 0, 0xE0000000, 0x00000000, Shader.TileMode.CLAMP));
+        c.drawRoundRect(b, rad, rad, fill);
+        fill.setShader(new LinearGradient(0, b.bottom - b.height() * 0.5f, 0, b.bottom, 0x00000000, 0xB0000000, Shader.TileMode.CLAMP));
+        c.drawRoundRect(b, rad, rad, fill);
+        fill.setShader(null);
+        if (focusRow == -1) c.drawRoundRect(b, rad, rad, ring);
+        if (p != null) {
+            float x = b.left + 64 * k, bottom = b.bottom - 64 * k;
+            // Bottom up: buttons, overview, meta, title, label.
+            String cta = (p.resuming ? es("Reanudar en ", "Resume on ") : es("Ver en ", "Watch on ")) + Recs.serviceName(p);
+            float bh = 62 * k, bw = button.measureText(cta) + 92 * k;
+            r1.set(x, bottom - bh, x + bw, bottom);
+            fill.setColor(0xFFFFFFFF);
+            c.drawRoundRect(r1, bh / 2, bh / 2, fill);
+            c.drawPath(playTriangle(x + 34 * k, r1.centerY(), 20 * k), button);
+            c.drawText(cta, x + 64 * k, r1.centerY() + Ui.halfCap(button), button);
+            float y = r1.top - 30 * k;
+            y = drawBlockUp(c, p.overview, billOverview, x, y, 780 * k, 3) - 18 * k;
+            y = drawBlockUp(c, p.meta, billMeta, x, y, 900 * k, 1) - 16 * k;
+            y = drawBlockUp(c, p.title, billTitle, x, y, 1000 * k, 2) - 18 * k;
+            fill.setColor(ACCENT);
+            c.drawRect(x, y - 20 * k, x + 6 * k, y + 2 * k, fill);
+            c.drawText("tv".equals(p.kind) ? es("SERIE", "SERIES") : es("PELÍCULA", "FILM"), x + 18 * k, y, kindLabel);
+        }
+        if (!rows.isEmpty()) {
+            Row first = rows.get(0);
+            float top = b.bottom + 34 * k;
+            c.drawText(first.title, MARGIN * k, top + 30 * k, rowPeek);
+            drawPeekCards(c, first, top + 52 * k);
+        }
+        c.restore();
+    }
+
+    /** The focused row at the top (its focused title first and wide), its details below, the next row peeking. */
+    private void drawRows(Canvas c) {
+        Row r = rows.get(focusRow);
+        float dy = slideY * k;
+        c.save();
+        c.translate(0, dy);
+        float titleY = 168 * k, top = 190 * k;
+        c.drawText(r.title, MARGIN * k, titleY, rowTitle);
+        int col = focusCol[focusRow];
+        float x = (MARGIN + slideX) * k;
+        for (int i = col; i < r.cards.size() && x < w; i++) {
+            boolean on = i == col;
+            Card card = r.cards.get(i);
+            float cw = (r.apps ? (on ? APP_WIDE_W : APP_W) : (on ? WIDE_W : POSTER_W)) * k;
+            float ch = (r.apps ? (on ? APP_WIDE_H : APP_H) : POSTER_H) * k;
+            r1.set(x, top, x + cw, top + ch);
+            if (card.pick != null) drawPickCard(c, card.pick, r1, on);
+            else drawAppCard(c, card.app, r1, on);
+            if (on && moving && r.shelf) {
+                badge.setColor(0xFF000000);
+                r2.set(r1.left + 12 * k, r1.top + 12 * k, r1.left + 150 * k, r1.top + 46 * k);
+                fill.setShader(null);
+                fill.setColor(ACCENT);
+                c.drawRoundRect(r2, 8 * k, 8 * k, fill);
+                c.drawText(es("← Mover →", "← Move →"), r2.left + 14 * k, r2.centerY() + Ui.halfCap(badge), badge);
+                badge.setColor(0xFFFFFFFF);
+            }
+            x += cw + GAP * k;
+        }
+        float below = top + (r.apps ? APP_WIDE_H : POSTER_H) * k + 52 * k;
+        Card f = focused();
+        if (f != null && f.pick != null) {
+            float y = drawBlockDown(c, f.pick.meta, meta, MARGIN * k, below, 1000 * k, 1) + 10 * k;
+            drawBlockDown(c, f.pick.overview, overview, MARGIN * k, y, 940 * k, 2);
+        } else if (f != null) {
+            drawBlockDown(c, f.app.label, meta, MARGIN * k, below, 1000 * k, 1);
+        }
+        if (focusRow + 1 < rows.size()) {
+            Row next = rows.get(focusRow + 1);
+            float ny = below + 150 * k;
+            c.drawText(next.title, MARGIN * k, ny + 30 * k, rowPeek);
+            drawPeekCards(c, next, ny + 52 * k);
+        }
+        c.restore();
+    }
+
+    private void drawPeekCards(Canvas c, Row r, float top) {
+        float x = MARGIN * k;
+        for (Card card : r.cards) {
+            if (x > w) break;
+            float cw = (r.apps ? APP_W : POSTER_W) * k, ch = (r.apps ? APP_H : POSTER_H) * k;
+            r1.set(x, top, x + cw, top + ch);
+            if (card.pick != null) drawPickCard(c, card.pick, r1, false);
+            else drawAppCard(c, card.app, r1, false);
+            x += cw + GAP * k;
+        }
+    }
+
+    private void drawPickCard(Canvas c, Recs.Pick p, RectF r, boolean wide) {
+        float rad = 12 * k;
+        boolean playing = wide && trailerOn && focusRow >= 0;
+        if (!playing) {
+            Bitmap img = wide ? recs.image(p.backdrop, "w780") : recs.image(p.poster, "w342");
+            if (img == null && !wide) img = recs.image(p.backdrop, "w500");
+            drawCover(c, img, r, rad, 0xFF26262A);
+            if (img == null || wide) {
+                // No poster yet, or the wide card: the title on a dark fade at the bottom.
+                fill.setShader(new LinearGradient(0, r.bottom - r.height() * 0.6f, 0, r.bottom, 0x00000000, 0xD8000000, Shader.TileMode.CLAMP));
+                c.drawRoundRect(r, rad, rad, fill);
+                fill.setShader(null);
+            }
+        } else {
+            fill.setShader(new LinearGradient(0, r.bottom - r.height() * 0.45f, 0, r.bottom, 0x00000000, 0xB0000000, Shader.TileMode.CLAMP));
+            c.drawRoundRect(r, rad, rad, fill);
+            fill.setShader(null);
+        }
+        if (wide) {
+            float x = r.left + 20 * k, y = r.bottom - 22 * k;
+            String t = TextUtils.ellipsize(p.title, new TextPaint(wideTitle), r.width() * 0.62f, TextUtils.TruncateAt.END).toString();
+            c.drawText(t, x, y, wideTitle);
+            c.drawText("tv".equals(p.kind) ? es("SERIE", "SERIES") : es("PELÍCULA", "FILM"), x, y - 54 * k, kindLabel);
+            float bx = r.right - 16 * k;
+            bx = drawBadge(c, Recs.serviceName(p), bx, r.bottom - 22 * k, 0x99000000, 0xFFFFFFFF);
+            if (p.resuming) drawBadge(c, es("Continuar viendo", "Continue watching"), bx - 10 * k, r.bottom - 22 * k, ACCENT, 0xFF000000);
+            c.drawRoundRect(r, rad, rad, ring);
+        } else if (p.poster == null || recs.image(p.poster, "w342") == null) {
+            String t = TextUtils.ellipsize(p.title, new TextPaint(peekTitle), r.width() - 24 * k, TextUtils.TruncateAt.END).toString();
+            c.drawText(t, r.left + 12 * k, r.bottom - 16 * k, peekTitle);
+        }
+    }
+
+    private void drawAppCard(Canvas c, HomeApps.Item it, RectF r, boolean on) {
+        float rad = 12 * k;
+        if (it.tile != null) {
+            drawCover(c, it.tile, r, rad, 0xFF1C1C1F);
+        } else {
+            fill.setShader(null);
+            fill.setColor(on ? 0xFF3A3A40 : 0xFF1C1C1F);
+            c.drawRoundRect(r, rad, rad, fill);
+            if (it.symbol != null) Symbols.draw(getContext(), c, it.symbol, r.centerX(), r.top + r.height() * 0.42f, 40 * k, 0xFFFFFFFF);
+            String t = TextUtils.ellipsize(it.label, new TextPaint(cardTitle), r.width() - 24 * k, TextUtils.TruncateAt.END).toString();
+            boolean dim = it.kind == HomeApps.INPUT && !it.connected;
+            cardTitle.setColor(dim ? 0xFF8E8E93 : 0xFFFFFFFF);
+            c.drawText(t, r.centerX() - cardTitle.measureText(t) / 2, r.top + r.height() * 0.8f, cardTitle);
+            cardTitle.setColor(0xFFFFFFFF);
+        }
+        if (on) c.drawRoundRect(r, rad, rad, ring);
+    }
+
+    /** A pill right-aligned at `right`, baseline `base`; returns its left edge. */
+    private float drawBadge(Canvas c, String text, float right, float base, int bg, int ink) {
+        if (text == null || text.isEmpty()) return right;
+        float tw = badge.measureText(text), ph = 32 * k;
+        r2.set(right - tw - 24 * k, base - ph + 6 * k, right, base + 6 * k);
+        fill.setShader(null);
+        fill.setColor(bg);
+        c.drawRoundRect(r2, 7 * k, 7 * k, fill);
+        badge.setColor(ink);
+        c.drawText(text, r2.left + 12 * k, r2.centerY() + Ui.halfCap(badge), badge);
+        badge.setColor(0xFFFFFFFF);
+        return r2.left;
+    }
+
+    /** Center-crops `img` into `r` with rounded corners; a flat color while it loads. */
+    private void drawCover(Canvas c, Bitmap img, RectF r, float rad, int placeholder) {
+        if (img == null) {
+            fill.setShader(null);
+            fill.setColor(placeholder);
+            c.drawRoundRect(r, rad, rad, fill);
+            return;
+        }
+        float ir = img.getWidth() / (float) img.getHeight(), rr = r.width() / r.height();
+        if (ir > rr) {
+            int sw = Math.round(img.getHeight() * rr);
+            src.set((img.getWidth() - sw) / 2, 0, (img.getWidth() + sw) / 2, img.getHeight());
+        } else {
+            int sh = Math.round(img.getWidth() / rr);
+            src.set(0, (img.getHeight() - sh) / 2, img.getWidth(), (img.getHeight() + sh) / 2);
+        }
+        hole.reset();
+        hole.setFillType(Path.FillType.WINDING);
+        hole.addRoundRect(r, rad, rad, Path.Direction.CW);
+        c.save();
+        c.clipPath(hole);
+        c.drawBitmap(img, src, r, bitmapPaint);
+        c.restore();
+    }
+
+    /** Text wrapped to `width`, up to `lines`, drawn ending at `bottom`; returns its top. */
+    private float drawBlockUp(Canvas c, String text, TextPaint p, float x, float bottom, float width, int lines) {
+        if (text == null || text.isEmpty()) return bottom;
+        StaticLayout l = layout(text, p, width, lines);
+        c.save();
+        c.translate(x, bottom - l.getHeight());
+        l.draw(c);
+        c.restore();
+        return bottom - l.getHeight();
+    }
+
+    /** Text wrapped to `width`, up to `lines`, drawn from `top`; returns its bottom. */
+    private float drawBlockDown(Canvas c, String text, TextPaint p, float x, float top, float width, int lines) {
+        if (text == null || text.isEmpty()) return top;
+        StaticLayout l = layout(text, p, width, lines);
+        c.save();
+        c.translate(x, top);
+        l.draw(c);
+        c.restore();
+        return top + l.getHeight();
+    }
+
+    private static StaticLayout layout(String text, TextPaint p, float width, int lines) {
+        return StaticLayout.Builder.obtain(text, 0, text.length(), p, Math.max(1, Math.round(width)))
+                .setMaxLines(lines).setEllipsize(TextUtils.TruncateAt.END).setAlignment(Layout.Alignment.ALIGN_NORMAL)
+                .setLineSpacing(0, 1.1f).setIncludePad(false).build();
+    }
+
+    private static Path playTriangle(float cx, float cy, float size) {
+        Path t = new Path();
+        t.moveTo(cx - size * 0.4f, cy - size * 0.5f);
+        t.lineTo(cx + size * 0.5f, cy);
+        t.lineTo(cx - size * 0.4f, cy + size * 0.5f);
+        t.close();
+        return t;
+    }
+}

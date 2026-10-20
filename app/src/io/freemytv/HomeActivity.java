@@ -15,7 +15,7 @@ import android.widget.TextView;
  * back to the TV's original one.
  */
 public class HomeActivity extends Activity {
-    private HomeView home;
+    private FlixView home;
 
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -34,7 +34,7 @@ public class HomeActivity extends Activity {
             return;
         }
         Ui.init(this);
-        home = new HomeView(this);
+        home = new FlixView(this);
         setContentView(home);
         getWindow().setBackgroundDrawable(null);
     }
@@ -52,7 +52,7 @@ public class HomeActivity extends Activity {
     /** Home button pressed on the home screen: back to the entry state (focus on the first app, sheet closed). */
     @Override protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
-        if (home != null) home.reset(true);
+        if (home != null) home.reset();
     }
 
     @Override protected void onDestroy() {

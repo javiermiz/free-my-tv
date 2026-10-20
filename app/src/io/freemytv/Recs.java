@@ -862,7 +862,13 @@ final class Recs {
             try {
                 found = tmdbTrailer(p, mine);
                 if (found.isEmpty() && !Config.YOUTUBE_KEY.trim().isEmpty()) {
-                    found = youtubeTrailer(p, mine);
+                    // Its English title too: Korean and Japanese shows' trailers are often named by it ("Perfect Crown").
+                    JSONObject en = get("/" + p.kind + "/" + p.id + "?language=en-US");
+                    String enTitle = en.optString(p.kind.equals("tv") ? "name" : "title", p.title);
+                    String original = en.optString("original_language", "");
+                    found = youtubeTrailer(p, mine, p.title + (es(mine) ? " tráiler oficial español latino" : " official trailer"), enTitle, original);
+                    if (found.isEmpty() && es(mine))
+                        found = youtubeTrailer(p, mine, enTitle + " trailer sub español", enTitle, original);
                     searched = true;
                 }
             } catch (Exception e) {
@@ -877,7 +883,7 @@ final class Recs {
     }
 
     private SharedPreferences savedTrailers() {
-        return context.getSharedPreferences("trailers2-" + lang(), Context.MODE_PRIVATE);   // 2: no Spain dubs
+        return context.getSharedPreferences("trailers3-" + lang(), Context.MODE_PRIVATE);   // 3: subtitled allowed
     }
 
     /** Spain's Spanish is fine only when the country is Spain (tmdb_region=ES). */
@@ -917,9 +923,12 @@ final class Recs {
      * YouTube search for the title's trailer in your language (config.properties "youtube_key", 100 searches a day for
      * free; each title is searched once). Dubbed beats subtitled; reviews, reactions and fan edits are skipped.
      */
-    private String youtubeTrailer(Pick p, String mine) throws Exception {
-        boolean es = mine.equals("es");
-        String q = p.title + (es ? " tráiler oficial español latino" : mine.equals("pt") ? " trailer oficial dublado" : " official trailer");
+    private static boolean es(String lang) {
+        return lang.equals("es");
+    }
+
+    private String youtubeTrailer(Pick p, String mine, String q, String enTitle, String original) throws Exception {
+        boolean es = es(mine);
         String url = "https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&maxResults=8&videoEmbeddable=true"
                 + "&relevanceLanguage=" + mine + "&regionCode=" + REGION + "&q=" + URLEncoder.encode(q, "UTF-8")
                 + "&key=" + URLEncoder.encode(Config.YOUTUBE_KEY.trim(), "UTF-8");
@@ -933,38 +942,40 @@ final class Recs {
         } finally {
             c.disconnect();
         }
-        String want = plain(p.title);
+        String[] want = {cut(plain(p.title)), cut(plain(enTitle))};
         String best = "";
-        int bestScore = 0;
+        int bestScore = -1;
         for (int i = 0; i < items.length(); i++) {
             JSONObject it = items.getJSONObject(i);
             String id = it.optJSONObject("id") == null ? "" : it.getJSONObject("id").optString("videoId");
             String raw = it.optJSONObject("snippet") == null ? "" : it.getJSONObject("snippet").optString("title");
             String channel = plain(it.optJSONObject("snippet") == null ? "" : it.getJSONObject("snippet").optString("channelTitle"));
             String t = plain(raw);
-            if (id.isEmpty() || !t.contains(want.length() > 24 ? want.substring(0, 24) : want)) continue;
+            if (id.isEmpty() || !(t.contains(want[0]) || (!want[1].isEmpty() && t.contains(want[1])))) continue;
             if (!(t.contains("trailer") || t.contains("teaser") || t.contains("avance"))) continue;
             // Fan-made "season 2" trailers, fan dubs, reviews and reactions aren't the trailer.
             if (t.matches(".*\\b(reaccion|reaction|review|resena|explicad[oa]|fan|fandub|concept|parodia|edit)\\b.*")) continue;
-            // Spanish for real: "Tráiler" with its accent, "oficial", or dubbed / Latin American / Castilian.
-            boolean dubbed = t.matches(".*\\b(latino|espanol|doblad[oa]|castellano)\\b.*");
-            boolean spanish = dubbed || raw.toLowerCase(Locale.ROOT).contains("tráiler") || t.matches(".*\\boficial\\b.*");
+            // Dubbed beats subtitled; subtitled is fine when the audio is Korean, Japanese... never English.
+            boolean subs = t.matches(".*\\b(subtitulad[oa]|sub esp[a-z]*|subs?|subtitulos)\\b.*");
+            boolean dubbed = !subs && t.matches(".*\\b(latino|espanol|doblad[oa]|castellano)\\b.*");
+            boolean spanish = dubbed || subs || raw.toLowerCase(Locale.ROOT).contains("tráiler") || t.matches(".*\\boficial\\b.*");
             if (es && !spanish) continue;
+            if (subs && original.equals("en")) continue;
             // Latin American Spanish, not Spain's: Spain's channels and "castellano" are out, Latin American ones first.
             boolean spain = (t + " " + channel).matches(".*\\b(castellano|espana)\\b.*");
             if (es && spain && !spainOk()) continue;
             boolean latam = (t + " " + channel).matches(".*\\b(latino|latinoamerica|latam|mexico|hispanoamerica)\\b.*");
-            int score = 1;
-            if (latam) score += 3;
-            if (dubbed) score += 2;
-            if (t.matches(".*\\b(oficial|official)\\b.*")) score += 1;
-            if (t.contains("subtitulad") || t.contains("sub esp")) score -= 2;   // the audio is still English
+            int score = (dubbed ? 4 : 0) + (latam ? 3 : 0) + (t.matches(".*\\b(oficial|official)\\b.*") ? 1 : 0) + (subs ? 1 : 0);
             if (score > bestScore) {
                 bestScore = score;
                 best = id;
             }
         }
         return best;
+    }
+
+    private static String cut(String s) {
+        return s.length() > 24 ? s.substring(0, 24) : s;
     }
 
     /** Lowercase, no accents or punctuation: "¡Tráiler!" → "trailer". */

@@ -167,13 +167,21 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
     }
     private final Path iconPath = new Path();
     private Paint navOn, navOff, navFocus, rowTitle, rowPeek, cardTitle, wideTitle, kindLabel, badge, weatherText, button, peekTitle;
-    private Paint menuHead, menuOn, menuOff;
-    /** The menu a long press on OK opens (a title's or an app's), over everything; null title = closed. */
+    private Paint menuHead, menuInfo, menuOn, menuOff, menuHint;
+    /**
+     * The panel holding OK opens (a title's or an app's), from the right over everything; null title = closed. Each
+     * choice: its label, its icon (MENU_PLAY…) and what it does.
+     */
     private String menuTitle;
+    private Recs.Pick menuPick;
+    private HomeApps.Item menuApp;
     private final List<String> menuLabels = new ArrayList<>();
+    private final List<Integer> menuIcons = new ArrayList<>();
     private final List<Runnable> menuActions = new ArrayList<>();
     private int menuFocus;
     private boolean menuOk;
+    private long menuAt;
+    private static final int MENU_PLAY = 0, MENU_ADD = 1, MENU_ADDED = 2, MENU_REMOVE = 3, MENU_MOVE = 4;
     private TextPaint meta, overview, billTitle, billMeta, billOverview, nameUnder, pill;
     private final RectF r1 = new RectF(), r2 = new RectF(), logoRect = new RectF();
     private final Paint whiteLogo = new Paint(Paint.FILTER_BITMAP_FLAG);
@@ -496,10 +504,13 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
                 // Opens on release, and only if the press happened here; held: its menu (My list, Continue watching; an app's).
                 if (down) {
                     if (e.getRepeatCount() == 0) okDown = true;
-                    else if (okDown && e.getRepeatCount() >= 1) okLong = true;
+                    else if (okDown && !okLong && !moving) {
+                        // Held: its menu, right away (releasing then does nothing); nothing to show, it opens on release.
+                        okLong = true;
+                        if (editMenu()) okDown = false;
+                    }
                 } else {
                     if (moving) moving = false;
-                    else if (okDown && okLong) { if (!editMenu()) activate(); }
                     else if (okDown && !e.isCanceled()) activate();
                     okDown = okLong = false;
                     screen.invalidate();
@@ -1345,8 +1356,10 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
         final int at = pkgs.indexOf(it.pkg);
         List<String> labels = new ArrayList<>();
         final List<Runnable> actions = new ArrayList<>();
+        final List<Integer> icons = new ArrayList<>();
         if (at < 0) {
             labels.add(Ui.t("Agregar a Tus apps", "Add to Your apps", "Adicionar a Seus apps"));
+            icons.add(MENU_ADD);
             actions.add(() -> {
                 if (pkgs.size() >= HomeApps.MAX_SHELF) {
                     Toast.makeText(ctx, Ui.t("Ya tienes " + HomeApps.MAX_SHELF + " apps: quita una primero.",
@@ -1360,6 +1373,7 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
             });
         } else {
             labels.add(Ui.t("Mover", "Move", "Mover"));
+            icons.add(MENU_MOVE);
             actions.add(() -> {
                 moving = true;
                 Toast.makeText(ctx, Ui.t("← → para moverla, OK para terminar.",
@@ -1367,25 +1381,30 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
                         "← → para mover, OK para terminar."), Toast.LENGTH_LONG).show();
             });
             labels.add(Ui.t("Quitar de Tus apps", "Remove from Your apps", "Tirar de Seus apps"));
+            icons.add(MENU_REMOVE);
             actions.add(() -> {
                 pkgs.remove(at);
                 HomeApps.saveShelf(ctx, pkgs);
                 reloadApps();
             });
         }
-        openMenu(it.label, labels, actions);
+        menuApp = it;
+        menuPick = null;
+        openMenu(it.label, labels, icons, actions);
         return true;
     }
 
     private void titleMenu(final Recs.Pick p) {
         final Context ctx = getContext();
         List<String> labels = new ArrayList<>();
+        List<Integer> icons = new ArrayList<>();
         List<Runnable> actions = new ArrayList<>();
         labels.add(p.resuming ? Ui.t("Reanudar", "Resume", "Continuar") : Ui.t("Reproducir", "Play", "Assistir"));
+        icons.add(MENU_PLAY);
         actions.add(this::activate);
         boolean listed = recs.isFavorite(p);
-        labels.add(listed ? Ui.t("Quitar de Mi lista", "Remove from My list", "Tirar da Minha lista")
-                : Ui.t("Agregar a Mi lista", "Add to My list", "Adicionar à Minha lista"));
+        labels.add(listed ? Ui.t("Quitar de Mi lista", "Remove from My list", "Tirar da Minha lista") : Ui.t("Agregar a Mi lista", "Add to My list", "Adicionar à Minha lista"));
+        icons.add(listed ? MENU_ADDED : MENU_ADD);
         actions.add(() -> {
             boolean in = recs.toggleFavorite(p);
             Toast.makeText(ctx, in ? Ui.t("Agregado a Mi lista", "Added to My list", "Adicionado à Minha lista")
@@ -1393,6 +1412,7 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
         });
         if (p.resuming) {
             labels.add(Ui.t("Quitar de Continuar viendo", "Remove from Continue watching", "Tirar de Continuar assistindo"));
+            icons.add(MENU_REMOVE);
             actions.add(() -> {
                 recs.forgetResume(p);
                 rebuild(true);
@@ -1401,24 +1421,27 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
                         "Removido de Continuar assistindo"), Toast.LENGTH_SHORT).show();
             });
         }
-        openMenu(p.title, labels, actions);
+        menuPick = p;
+        menuApp = null;
+        openMenu(p.title, labels, icons, actions);
     }
 
-    private void openMenu(String title, List<String> labels, List<Runnable> actions) {
-        labels.add(Ui.t("Cancelar", "Cancel", "Cancelar"));
-        actions.add(() -> {});
+    private void openMenu(String title, List<String> labels, List<Integer> icons, List<Runnable> actions) {
         menuTitle = title == null ? "" : title;
         menuLabels.clear();
         menuLabels.addAll(labels);
+        menuIcons.clear();
+        menuIcons.addAll(icons);
         menuActions.clear();
         menuActions.addAll(actions);
         menuFocus = 0;
         menuOk = false;
+        menuAt = android.os.SystemClock.uptimeMillis();
         click.open();
         screen.invalidate();
     }
 
-    /** ↑ ↓ through the menu, OK (on release) does it, Back closes it. */
+    /** ↑ ↓ through the choices, OK (pressed and released here) does it, Back or ← closes the panel. */
     private boolean menuKey(KeyEvent e) {
         boolean down = e.getAction() == KeyEvent.ACTION_DOWN;
         switch (e.getKeyCode()) {
@@ -1440,6 +1463,7 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
                 }
                 break;
             case KeyEvent.KEYCODE_BACK:
+            case KeyEvent.KEYCODE_DPAD_LEFT:
                 if (!down) menuTitle = null;
                 break;
             default:
@@ -1449,31 +1473,105 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
         return true;
     }
 
-    /** The menu: a dark card in the middle over a shade, its choices in pills (the focused one white). */
+    /**
+     * The panel: from the right, the whole height, over a shade. On top the title's picture (an app's card), its name
+     * and details; under them the choices, each with its icon, the focused one in a white pill.
+     */
     private void drawMenu(Canvas c) {
         if (menuTitle == null) return;
+        float t = Math.min(1, (android.os.SystemClock.uptimeMillis() - menuAt) / 220f), e = 1 - (1 - t) * (1 - t) * (1 - t);
+        if (t < 1) screen.postInvalidateOnAnimation();
         fill.setShader(null);
-        fill.setColor(0xB3000000);
+        fill.setColor(Ui.alpha(0xFF000000, 0.6f * e));
         c.drawRect(0, 0, w, h, fill);
-        float rowH = 72 * k, gap = 8 * k, pad = 28 * k, cw = 680 * k, head = 76 * k;
-        float ch = pad + head + menuLabels.size() * (rowH + gap) - gap + pad;
-        float left = (w - cw) / 2, top = (h - ch) / 2;
-        r1.set(left, top, left + cw, top + ch);
-        fill.setColor(0xFF161618);
-        c.drawRoundRect(r1, 32 * k, 32 * k, fill);
-        String t = TextUtils.ellipsize(menuTitle, new TextPaint(menuHead), cw - 2 * pad - 24 * k, TextUtils.TruncateAt.END).toString();
-        c.drawText(t, left + pad + 24 * k, top + pad + 46 * k, menuHead);
+        float pw = 660 * k, left = w - pw * e, pad = 48 * k, x = left + pad, inner = pw - 2 * pad;
+        fill.setColor(0xFF111113);
+        c.drawRect(left, 0, w, h, fill);
+        fill.setColor(0x14FFFFFF);
+        c.drawRect(left, 0, left + 1.5f * k, h, fill);
+
+        float y = 72 * k;
+        Bitmap img = menuPick != null ? (menuPick.backdrop == null ? null : recs.image(menuPick.backdrop, "w1280"))
+                : menuApp != null ? menuApp.tile : null;
+        if (img != null || menuPick != null) {
+            r1.set(x, y, x + inner, y + inner * 9 / 16);
+            drawCover(c, img, r1, 20 * k, 0xFF1C1C1F);
+            y = r1.bottom + 52 * k;
+        } else {
+            y += 40 * k;
+        }
+        c.drawText(TextUtils.ellipsize(menuTitle, new TextPaint(menuHead), inner, TextUtils.TruncateAt.END).toString(), x, y, menuHead);
+        String detail = menuPick != null ? info(menuPick) : "";
+        if (!detail.isEmpty()) {
+            y += 38 * k;
+            c.drawText(TextUtils.ellipsize(detail, new TextPaint(menuInfo), inner, TextUtils.TruncateAt.END).toString(), x, y, menuInfo);
+        }
+        y += 40 * k;
+        fill.setColor(0x1AFFFFFF);
+        c.drawRect(x, y, x + inner, y + 1.5f * k, fill);
+        y += 28 * k;
+
+        float rowH = 76 * k, gap = 6 * k;
         for (int i = 0; i < menuLabels.size(); i++) {
-            float y = top + pad + head + i * (rowH + gap);
-            r1.set(left + pad, y, left + cw - pad, y + rowH);
+            r1.set(x - 20 * k, y, x + inner + 20 * k, y + rowH);
             boolean on = i == menuFocus;
             if (on) {
                 fill.setColor(0xFFFFFFFF);
                 c.drawRoundRect(r1, rowH / 2, rowH / 2, fill);
             }
+            int ink = on ? 0xFF000000 : 0xFFE4E4E7;
+            drawMenuIcon(c, menuIcons.get(i), r1.left + 48 * k, r1.centerY(), 26 * k, ink);
             Paint tp = on ? menuOn : menuOff;
-            c.drawText(menuLabels.get(i), r1.left + 24 * k, r1.centerY() + Ui.halfCap(tp), tp);
+            c.drawText(menuLabels.get(i), r1.left + 88 * k, r1.centerY() + Ui.halfCap(tp), tp);
+            y += rowH + gap;
         }
+        c.drawText(Ui.t("Atrás para cerrar", "Back to close", "Voltar para fechar"), x, h - 56 * k, menuHint);
+    }
+
+    /** The choices' icons as line drawings (24 units, scaled to `size`): play, add, added, remove, move. */
+    private void drawMenuIcon(Canvas c, int kind, float cx, float cy, float size, int color) {
+        float u = size / 24f;
+        icon.setColor(color);
+        icon.setStrokeWidth(2.2f * u);
+        iconPath.reset();
+        switch (kind) {
+            case MENU_PLAY:
+                iconPath.moveTo(cx - 6 * u, cy - 8 * u);
+                iconPath.lineTo(cx + 8 * u, cy);
+                iconPath.lineTo(cx - 6 * u, cy + 8 * u);
+                iconPath.close();
+                fill.setColor(color);
+                c.drawPath(iconPath, fill);
+                return;
+            case MENU_ADD:
+                iconPath.moveTo(cx, cy - 9 * u);
+                iconPath.lineTo(cx, cy + 9 * u);
+                iconPath.moveTo(cx - 9 * u, cy);
+                iconPath.lineTo(cx + 9 * u, cy);
+                break;
+            case MENU_ADDED:
+                iconPath.moveTo(cx - 9 * u, cy + 0.5f * u);
+                iconPath.lineTo(cx - 3 * u, cy + 6.5f * u);
+                iconPath.lineTo(cx + 9 * u, cy - 6.5f * u);
+                break;
+            case MENU_REMOVE:
+                iconPath.moveTo(cx - 7 * u, cy - 7 * u);
+                iconPath.lineTo(cx + 7 * u, cy + 7 * u);
+                iconPath.moveTo(cx + 7 * u, cy - 7 * u);
+                iconPath.lineTo(cx - 7 * u, cy + 7 * u);
+                break;
+            default:   // move: ← →
+                iconPath.moveTo(cx - 10 * u, cy);
+                iconPath.lineTo(cx + 10 * u, cy);
+                iconPath.moveTo(cx - 5 * u, cy - 5 * u);
+                iconPath.lineTo(cx - 10 * u, cy);
+                iconPath.lineTo(cx - 5 * u, cy + 5 * u);
+                iconPath.moveTo(cx + 5 * u, cy - 5 * u);
+                iconPath.lineTo(cx + 10 * u, cy);
+                iconPath.lineTo(cx + 5 * u, cy + 5 * u);
+                break;
+        }
+        c.drawPath(iconPath, icon);
     }
 
     private void moveShelfApp(int dx) {
@@ -1835,9 +1933,11 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
         navOn = Ui.text(Ui.semibold, 24 * k, 0xFFFFFFFF);
         navOff = Ui.text(Ui.semibold, 24 * k, 0xFFB4B4BC);
         navFocus = Ui.text(Ui.semibold, 24 * k, 0xFF000000);
-        menuHead = Ui.text(Ui.displaySemibold, 34 * k, 0xFFFFFFFF);
-        menuOn = Ui.text(Ui.semibold, 28 * k, 0xFF000000);
-        menuOff = Ui.text(Ui.semibold, 28 * k, 0xFFE4E4E7);
+        menuHead = Ui.text(Ui.displaySemibold, 36 * k, 0xFFFFFFFF);
+        menuInfo = Ui.text(Ui.medium, 22 * k, 0xFFA1A1AA);
+        menuOn = Ui.text(Ui.semibold, 27 * k, 0xFF000000);
+        menuOff = Ui.text(Ui.semibold, 27 * k, 0xFFE4E4E7);
+        menuHint = Ui.text(Ui.regular, 21 * k, 0xFF71717A);
         rowTitle = Ui.text(Ui.semibold, 30 * k, 0xFFFFFFFF);
         rowPeek = Ui.text(Ui.semibold, 28 * k, 0xFFA1A1AA);
         cardTitle = Ui.text(Ui.semibold, 21 * k, 0xFFFFFFFF);

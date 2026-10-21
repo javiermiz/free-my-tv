@@ -70,7 +70,7 @@ Everything lives in `config.properties`, created by the first `./build.sh` and n
 | `currency` | Currency for crypto prices (not shown on this home screen) | `USD` |
 | `disable_assistant` | Also turns off Google Assistant | `false` |
 
-How to get each key: [SETUP.md](SETUP.md#3-the-keys). Changed something? Run `./build.sh` and install again. Keep `freemytv.keystore`: updates are signed with it.
+The language can also be changed on the TV, with no rebuild: *Free My TV* → *Language*. How to get each key: [SETUP.md](SETUP.md#3-the-keys). Changed something? Run `./build.sh` and install again. Keep `freemytv.keystore`: updates are signed with it.
 
 ## Going back
 

@@ -24,17 +24,22 @@ final class Ui {
 
     static final Locale PT = new Locale("pt", "BR");
     static final Locale ES = new Locale("es", "MX");
-    /** "es", "en" or "pt": config.properties "language", or with "auto" the TV's own (English if it's neither). */
-    static final String LANG = language();
+    /**
+     * "es", "en" or "pt": the one picked in the settings (Language), else config.properties "language", or with
+     * "auto" the TV's own (English if it's neither). Read again by load().
+     */
+    static volatile String LANG = language(Config.LANGUAGE);
     static volatile boolean en = LANG.equals("en");
     /** Dates and numbers in the app's language. */
-    static final Locale LOCALE = LANG.equals("es") ? ES : LANG.equals("pt") ? PT : Locale.US;
+    static volatile Locale LOCALE = locale(LANG);
+    static final String[] LANGUAGES = {"es", "en", "pt"};
     static Typeface thin, light, displayMedium, displaySemibold, regular, medium, semibold;
     private static boolean loaded;
     private static final Rect BOUNDS = new Rect();
     private static final RectF OVAL = new RectF();
 
     static synchronized void init(Context c) {
+        load(c);
         if (loaded) return;
         loaded = true;
         AssetManager a = c.getAssets();
@@ -62,8 +67,47 @@ final class Ui {
 
     private static final String FONT = "fonts/InterVariable.ttf";
 
-    private static String language() {
-        String lang = Config.LANGUAGE.trim().toLowerCase(Locale.ROOT);
+    /** The language picked in the settings (a file both processes read), over config.properties. */
+    static void load(Context c) {
+        String picked = "";
+        try {
+            picked = new String(java.nio.file.Files.readAllBytes(languageFile(c).toPath()), java.nio.charset.StandardCharsets.UTF_8);
+        } catch (IOException ignored) {   // none picked
+        }
+        set(language(picked.trim().isEmpty() ? Config.LANGUAGE : picked));
+    }
+
+    /** Picks the app's language (the settings' Language) and keeps it for both processes. */
+    static void pick(Context c, String lang) {
+        try {
+            java.nio.file.Files.write(languageFile(c).toPath(), lang.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        } catch (IOException e) {
+            AppLog.w("language: " + e.getMessage());
+        }
+        set(lang);
+    }
+
+    private static java.io.File languageFile(Context c) {
+        return new java.io.File(c.getFilesDir(), "language");
+    }
+
+    private static void set(String lang) {
+        LANG = lang;
+        en = lang.equals("en");
+        LOCALE = locale(lang);
+    }
+
+    private static Locale locale(String lang) {
+        return lang.equals("es") ? ES : lang.equals("pt") ? PT : Locale.US;
+    }
+
+    /** The language's own name, for the settings: "Español", "English", "Português". */
+    static String languageName(String lang) {
+        return lang.equals("es") ? "Español" : lang.equals("pt") ? "Português" : "English";
+    }
+
+    private static String language(String setting) {
+        String lang = setting.trim().toLowerCase(Locale.ROOT);
         if (lang.equals("auto")) lang = Locale.getDefault().getLanguage();
         for (String l : new String[] {"es", "pt"}) if (lang.startsWith(l)) return l;
         return "en";

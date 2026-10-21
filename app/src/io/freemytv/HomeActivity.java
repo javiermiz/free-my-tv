@@ -16,6 +16,7 @@ import android.widget.TextView;
  */
 public class HomeActivity extends Activity {
     private FlixView home;
+    private String lang = "";
 
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -35,6 +36,7 @@ public class HomeActivity extends Activity {
             return;
         }
         Ui.init(this);
+        lang = Ui.LANG;
         home = new FlixView(this);
         setContentView(home);
         getWindow().setBackgroundDrawable(null);
@@ -42,6 +44,11 @@ public class HomeActivity extends Activity {
 
     @Override protected void onResume() {
         super.onResume();
+        // A new language picked in the settings: the home screen again, in it (its picks refetch by themselves).
+        if (home != null && !lang.equals(Ui.LANG)) {
+            recreate();
+            return;
+        }
         if (home != null) home.resume();
     }
 

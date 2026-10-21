@@ -20,6 +20,7 @@ public class ModeJob extends JobService {
         final String action = extras.getString("action", "");
         final String mode = extras.getString("mode", "");
         final Context app = getApplicationContext();
+        Ui.load(app);   // the notices in the language picked in the settings
         new Thread(() -> {
             try {
                 switch (action) {

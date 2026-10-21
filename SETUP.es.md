@@ -194,7 +194,7 @@ editor de texto (en Mac: `open -e config.properties`) y llena:
 | `tmdb_region` | Tu país en dos letras (decide qué título está en qué servicio) | `MX`, `CO`, `AR`, `CL`, `PE`, `ES`, `US` |
 | `latitude`, `longitude` | Las coordenadas de tu ciudad, en grados decimales | Ciudad de México: `19.4326`, `-99.1332` |
 | `city` | El nombre que se ve junto al clima | `CDMX` |
-| `language` | El idioma de la app y de títulos, tráilers, doblaje y subtítulos: `es`, `en` o `pt` (Brasil) | `es` |
+| `language` | El idioma de la app y de títulos, tráilers, doblaje y subtítulos: `es`, `en` o `pt` (Brasil). Luego también se cambia en la TV (*Free My TV* → *Idioma*) | `es` |
 | `temperature` | `C` o `F` | `C` |
 | `stremio_key` | Tu llave de Stremio (paso 3), o vacío | |
 | `youtube_key` | Tu llave de YouTube (paso 3), o vacío | `AIza…` |

@@ -70,7 +70,7 @@ Todo vive en `config.properties`, que crea el primer `./build.sh` y que nunca se
 | `currency` | Moneda de los precios cripto (no se muestran en este home) | `USD` |
 | `disable_assistant` | También apaga el Asistente de Google | `false` |
 
-Cómo conseguir cada llave: [SETUP.md](SETUP.es.md#3-las-llaves). ¿Cambiaste algo? Vuelve a correr `./build.sh` e instala otra vez. Guarda `freemytv.keystore`: las actualizaciones se firman con él.
+El idioma también se cambia en la TV, sin recompilar: *Free My TV* → *Idioma*. Cómo conseguir cada llave: [SETUP.es.md](SETUP.es.md#3-las-llaves). ¿Cambiaste algo? Vuelve a correr `./build.sh` e instala otra vez. Guarda `freemytv.keystore`: las actualizaciones se firman con él.
 
 ## Volver al original
 

@@ -190,7 +190,7 @@ editor (on a Mac: `open -e config.properties`) and fill in:
 | `tmdb_region` | Your country in two letters (decides which title is on which service) | `US`, `MX`, `CO`, `AR`, `ES`, `GB` |
 | `latitude`, `longitude` | Your city's coordinates, in decimal degrees | Mexico City: `19.4326`, `-99.1332` |
 | `city` | The name shown next to the weather | `CDMX` |
-| `language` | The app's language, and TMDB's, trailers', dubs' and subtitles': `es`, `en` or `pt` (Brazil) | `en` |
+| `language` | The app's language, and TMDB's, trailers', dubs' and subtitles': `es`, `en` or `pt` (Brazil). You can change it later on the TV too (*Free My TV* → *Language*) | `en` |
 | `temperature` | `C` or `F` | `C` |
 | `stremio_key` | Your Stremio key (step 3), or empty | |
 | `youtube_key` | Your YouTube key (step 3), or empty | `AIza…` |

@@ -192,7 +192,7 @@ qualquer editor de texto (no Mac: `open -e config.properties`) e preencha:
 | `tmdb_region` | Seu país em duas letras (decide qual título está em qual serviço) | `BR`, `PT`, `US` |
 | `latitude`, `longitude` | As coordenadas da sua cidade, em graus decimais | São Paulo: `-23.5505`, `-46.6333` |
 | `city` | O nome que aparece ao lado do clima | `São Paulo` |
-| `language` | O idioma do app e dos títulos, trailers, dublagem e legendas: `pt` (Brasil), `es` ou `en` | `pt` |
+| `language` | O idioma do app e dos títulos, trailers, dublagem e legendas: `pt` (Brasil), `es` ou `en`. Depois também se troca na TV (*Free My TV* → *Idioma*) | `pt` |
 | `temperature` | `C` ou `F` | `C` |
 | `stremio_key` | Sua chave do Stremio (passo 3), ou vazio | |
 | `youtube_key` | Sua chave do YouTube (passo 3), ou vazio | `AIza…` |

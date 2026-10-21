@@ -55,7 +55,7 @@ public class SearchActivity extends Activity implements Recs.Listener {
         LinearLayout head = new LinearLayout(this);
         head.setGravity(Gravity.CENTER_VERTICAL);
         EditText box = new EditText(this);
-        box.setHint(FlixView.es("Busca una película o serie", "Search a movie or show"));
+        box.setHint(Ui.t("Busca una película o serie", "Search a movie or show", "Busque um filme ou série"));
         box.setSingleLine(true);
         box.setImeOptions(EditorInfo.IME_ACTION_SEARCH);
         box.setTextColor(Color.WHITE);
@@ -136,7 +136,8 @@ public class SearchActivity extends Activity implements Recs.Listener {
                 Recs.Pick p = shown.get(i);
                 ((ImageView) cell.getChildAt(0)).setImageBitmap(recs.image(p.poster, "w342"));
                 ((TextView) cell.getChildAt(1)).setText(p.title);
-                ((TextView) cell.getChildAt(2)).setText(("tv".equals(p.kind) ? FlixView.es("Serie", "Show") : FlixView.es("Película", "Movie"))
+                ((TextView) cell.getChildAt(2)).setText(("tv".equals(p.kind) ? Ui.t("Serie", "Show", "Série") : Ui.t("Película",
+                        "Movie", "Filme"))
                         + (p.year == null || p.year.isEmpty() ? "" : " · " + p.year));
                 return cell;
             }
@@ -160,7 +161,7 @@ public class SearchActivity extends Activity implements Recs.Listener {
             status.setText("");
             return;
         }
-        status.setText(FlixView.es("Buscando…", "Searching…"));
+        status.setText(Ui.t("Buscando…", "Searching…", "Buscando…"));
         new Thread(() -> {
             List<Recs.Pick> found;
             try {
@@ -175,19 +176,21 @@ public class SearchActivity extends Activity implements Recs.Listener {
                 shown.clear();
                 if (result != null) shown.addAll(result);
                 adapter.notifyDataSetChanged();
-                status.setText(result == null ? FlixView.es("No se pudo buscar", "Couldn't search")
-                        : result.isEmpty() ? FlixView.es("Nada con ese nombre", "Nothing by that name") : "");
+                status.setText(result == null ? Ui.t("No se pudo buscar", "Couldn't search", "Não deu para buscar")
+                        : result.isEmpty() ? Ui.t("Nada con ese nombre",
+                                "Nothing by that name", "Nada com esse nome") : "");
             });
         }).start();
     }
 
     /** Which app has it, then back to the home screen, which opens it there. */
     private void open(Recs.Pick p) {
-        status.setText(FlixView.es("Abriendo…", "Opening…"));
+        status.setText(Ui.t("Abriendo…", "Opening…", "Abrindo…"));
         recs.prepare(p, ready -> {
             if (ready.pkg == null) {
                 status.setText("");
-                Toast.makeText(this, FlixView.es("Ninguna app de la TV lo tiene", "No app on the TV has it"), Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, Ui.t("Ninguna app de la TV lo tiene",
+                        "No app on the TV has it", "Nenhum app da TV tem"), Toast.LENGTH_SHORT).show();
                 return;
             }
             FlixView.pendingOpen = ready;

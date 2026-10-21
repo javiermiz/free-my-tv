@@ -401,9 +401,12 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     /** The three corner buttons, with their names in the current language. */
     private void makeLightButtons() {
         lightButtons.clear();
-        lightButtons.add(HomeApps.action(HomeApps.LIVE_TV, "live", Ui.tr("TV aberta", "Live TV"), "live_tv"));
-        lightButtons.add(HomeApps.action(HomeApps.INPUTS, "inputs", Ui.tr("Entradas HDMI", "HDMI Inputs"), "hdmi"));
-        lightButtons.add(HomeApps.action(HomeApps.SETTINGS, "settings", Ui.tr("Configurações", "Settings"), "settings"));
+        lightButtons.add(HomeApps.action(HomeApps.LIVE_TV, "live", Ui.t("TV abierta",
+                "Live TV", "TV aberta"), "live_tv"));
+        lightButtons.add(HomeApps.action(HomeApps.INPUTS, "inputs", Ui.t("Entradas HDMI",
+                "HDMI Inputs", "Entradas HDMI"), "hdmi"));
+        lightButtons.add(HomeApps.action(HomeApps.SETTINGS, "settings", Ui.t("Configuración",
+                "Settings", "Configurações"), "settings"));
     }
 
     private static String[] tabs() {
@@ -697,7 +700,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         Recs.Pick p = currentPick();
         if (p == null) {
             h.clock = true;
-            h.label = Ui.date(System.currentTimeMillis()).toUpperCase(Ui.en ? java.util.Locale.US : Ui.PT);
+            h.label = Ui.date(System.currentTimeMillis()).toUpperCase(Ui.LOCALE);
             return h;
         }
         h.label = Recs.periodLabel();
@@ -1292,8 +1295,10 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         hourTemp.setColor(drawerInk(0.95f));
         pricePaint.setColor(drawerInk(0.95f));
         float titleBase = ROW_TITLE * k;
-        if (drawerInputs > 0) c.drawText(Ui.tr("Entradas", "Inputs"), drawerRects[0].left + 4 * k, titleBase, rowTitle);
-        if (drawerInputs < drawerItems.size()) c.drawText(Ui.tr("Atalhos", "Shortcuts"), drawerRects[drawerInputs].left + 4 * k, titleBase, rowTitle);
+        if (drawerInputs > 0) c.drawText(Ui.t("Entradas",
+                "Inputs", "Entradas"), drawerRects[0].left + 4 * k, titleBase, rowTitle);
+        if (drawerInputs < drawerItems.size()) c.drawText(Ui.t("Atajos",
+                "Shortcuts", "Atalhos"), drawerRects[drawerInputs].left + 4 * k, titleBase, rowTitle);
         int top = -1;
         for (int i = 0; i < drawerItems.size(); i++) if (drawerFocus[i].value > 0.02f && (top < 0 || drawerFocus[i].value > drawerFocus[top].value)) top = i;
         for (int i = 0; i < drawerItems.size(); i++) if (i != top) drawDrawerTile(c, i);
@@ -1452,7 +1457,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private void drawSheet(Canvas c) {
         c.drawColor(0xA8000000);
         float shift = scroll.value * GRID_ROW * k;
-        c.drawText(Ui.tr("Todos os Apps", "All Apps"), w / 2f, 124 * k - shift, sheetTitle);
+        c.drawText(Ui.t("Todas las apps", "All Apps", "Todos os Apps"), w / 2f, 124 * k - shift, sheetTitle);
         int n = others.size();
         if (gridLabels == null || gridLabels.length != n) {
             gridLabels = new String[n];
@@ -1628,11 +1633,12 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         List<String> labels = new ArrayList<>();
         final List<Runnable> actions = new ArrayList<>();
         if (at < 0) {
-            labels.add(Ui.tr("Adicionar ao Início", "Add to Home"));
+            labels.add(Ui.t("Agregar al inicio", "Add to Home", "Adicionar ao Início"));
             actions.add(() -> {
                 if (pkgs.size() >= HomeApps.MAX_SHELF) {
-                    showToast(Ui.tr("O Início já tem " + HomeApps.MAX_SHELF + " apps: tire um primeiro.",
-                            "Home already has " + HomeApps.MAX_SHELF + " apps: remove one first."));
+                    showToast(Ui.t("El inicio ya tiene " + HomeApps.MAX_SHELF + " apps: quita una primero.",
+                            "Home already has " + HomeApps.MAX_SHELF + " apps: remove one first.",
+                            "O Início já tem " + HomeApps.MAX_SHELF + " apps: tire um primeiro."));
                     return;
                 }
                 pkgs.add(it.pkg);
@@ -1642,19 +1648,20 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                 reload();
             });
         } else {
-            labels.add(Ui.tr("Mover", "Move"));
+            labels.add(Ui.t("Mover", "Move", "Mover"));
             actions.add(() -> {
                 moving = true;
-                showToast(Ui.tr("← → para mover, OK para terminar.", "← → to move it, OK when done."));
+                showToast(Ui.t("← → para moverla, OK para terminar.",
+                        "← → to move it, OK when done.", "← → para mover, OK para terminar."));
             });
-            labels.add(Ui.tr("Tirar do Início", "Remove from Home"));
+            labels.add(Ui.t("Quitar del inicio", "Remove from Home", "Tirar do Início"));
             actions.add(() -> {
                 pkgs.remove(at);
                 HomeApps.saveShelf(c, pkgs);
                 reload();
             });
         }
-        labels.add(Ui.tr("Cancelar", "Cancel"));
+        labels.add(Ui.t("Cancelar", "Cancel", "Cancelar"));
         actions.add(() -> {});
         new android.app.AlertDialog.Builder(activity, android.R.style.Theme_DeviceDefault_Dialog_Alert)
                 .setTitle(it.label)
@@ -1929,7 +1936,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         }
         boolean opened = HomeApps.open(activity, it, this, Math.round(r.left), Math.round(r.top),
                 Math.round(r.width()), Math.round(r.height()));
-        if (!opened) showToast(Ui.tr("Não deu para abrir ", "Couldn't open ") + it.label + ".");
+        if (!opened) showToast(Ui.t("No se pudo abrir ", "Couldn't open ", "Não deu para abrir ") + it.label + ".");
     }
 
     // MARK: - Light design: title, tabs, cards and icon-only buttons
@@ -2035,7 +2042,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
 
     private void drawLightTop(Canvas c) {
         applyTone();
-        String hello = Ui.tr("Para você", "For You");
+        String hello = Ui.t("Para ti", "For You", "Para você");
         c.drawText(hello, MARGIN * k - Ui.leftBearing(lTitle, hello), L_TITLE_BASE * k, lTitle);
         // Text tabs (the selected one in bold, in the main text color); with focus on the tabs, the selected one gets
         // the white pill with a shadow and grows a little (the tvOS focus).
@@ -2116,7 +2123,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         if (p == null) return;
         if (p.resuming) {
             // "Continue watching": a dark pill on the photo's corner.
-            String tag = Ui.tr("CONTINUAR ASSISTINDO", "CONTINUE WATCHING");
+            String tag = Ui.t("CONTINUAR VIENDO", "CONTINUE WATCHING", "CONTINUAR ASSISTINDO");
             float pw = lTip.measureText(tag) + 32 * k, ph = 40 * k;
             tmp.set(cell.left + 18 * k, cell.top + 18 * k, cell.left + 18 * k + pw, cell.top + 18 * k + ph);
             fill.setShader(null);

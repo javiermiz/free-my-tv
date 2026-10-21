@@ -30,6 +30,8 @@ Un destacado con tráiler, filas de recomendaciones de TMDB y de lo que ves en S
 - **Buscar, todas tus apps y el clima** de tu ciudad arriba a la derecha.
 - **Seguro.** Sin root. No desinstala nada. Un botón devuelve el home de fábrica.
 
+Toda la app (home, reproductor, búsqueda y ajustes) está en español, inglés o portugués de Brasil (`language=es`, `en` o `pt`), y el doblaje y los subtítulos la siguen: español latino o portugués de Brasil primero.
+
 ## Capturas
 
 | | |
@@ -61,7 +63,7 @@ Todo vive en `config.properties`, que crea el primer `./build.sh` y que nunca se
 | `tmdb_region` | Tu país en dos letras: qué título está en qué servicio | `US` |
 | `latitude`, `longitude` | Tu ciudad, para el clima y el modo noche | Nueva York |
 | `city` | El nombre junto al clima | vacío |
-| `language` | `es` para títulos y home en español (`auto`, `en` o `pt` también sirven) | `auto` |
+| `language` | `es`, `en` o `pt`: la app, los títulos de TMDB y el doblaje y subtítulos preferidos. `auto` sigue a la TV | `auto` |
 | `temperature` | `C`, `F` o `auto` | `auto` |
 | `stremio_key` | Continuar viendo, Mi lista, recomendaciones y el reproductor propio. Opcional. | vacía |
 | `youtube_key` | Tráilers en español latino que TMDB no tiene. Opcional. | vacía |
@@ -72,7 +74,7 @@ Cómo conseguir cada llave: [SETUP.md](SETUP.es.md#3-las-llaves). ¿Cambiaste al
 
 ## Volver al original
 
-En la TV: *Free My TV* → *Home Screen* → *Original*. El home de fábrica, el protector de pantalla y todas las apps vuelven tal como estaban. Si el home nuevo falla tres veces en cinco minutos, vuelve al original solo.
+En la TV: *Free My TV* → *Inicio* → *Original*. El home de fábrica, el protector de pantalla y todas las apps vuelven tal como estaban. Si el home nuevo falla tres veces en cinco minutos, vuelve al original solo.
 
 Para quitarlo del todo, primero cambia a *Original* y después desinstala *Free My TV* (Ajustes → Apps).
 

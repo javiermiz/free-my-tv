@@ -21,7 +21,7 @@ A featured title with its trailer, rows of picks from TMDB and from what you wat
 ## What you get
 
 - **No ads.** No sponsored rows, banners or autoplaying promos.
-- **A featured title with its trailer.** The focused title widens to 16:9 and plays its trailer inside the card, in Latin American Spanish when there is one.
+- **A featured title with its trailer.** The focused title widens to 16:9 and plays its trailer inside the card, in your language when there is one.
 - **A tab per service:** For you, Netflix, Disney+, Prime Video, Paramount+, Crunchyroll and Stremio, each with its own rows.
 - **Continue watching, My list and New episodes** from your Stremio account, and picks based on what you watch.
 - **A page per show** with resume, seasons, episodes and upcoming air dates.
@@ -30,7 +30,7 @@ A featured title with its trailer, rows of picks from TMDB and from what you wat
 - **Search, all your apps and the weather** for your city at the top right.
 - **Safe.** No root. Nothing is uninstalled. One button brings back the factory home screen.
 
-The home screen is in Spanish (`language=es`) or English; the screenshots show it in Spanish.
+The whole app (home screen, player, search and settings) is in Spanish, English or Brazilian Portuguese (`language=es`, `en` or `pt`), and dubs and subtitles follow it: Latin American Spanish or Brazilian Portuguese first. The screenshots show it in Spanish.
 
 ## Screenshots
 
@@ -63,7 +63,7 @@ Everything lives in `config.properties`, created by the first `./build.sh` and n
 | `tmdb_region` | Your country (two letters): which title is on which service | `US` |
 | `latitude`, `longitude` | Your city, for the weather and the night look | New York |
 | `city` | The name next to the weather | empty |
-| `language` | `es` for titles and home screen in Spanish (`auto`, `en` or `pt` work too) | `auto` |
+| `language` | `es`, `en` or `pt`: the app, TMDB's titles and the preferred dubs and subtitles. `auto` follows the TV | `auto` |
 | `temperature` | `C`, `F` or `auto` | `auto` |
 | `stremio_key` | Continue watching, My list, picks and the player. Optional. | empty |
 | `youtube_key` | Trailers in your language that TMDB doesn't have. Optional. | empty |

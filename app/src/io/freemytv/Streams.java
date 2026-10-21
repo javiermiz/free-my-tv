@@ -31,6 +31,8 @@ final class Streams {
     private static final Pattern LATAM = Pattern.compile(
             "latino|latam|lat-am|\\blat\\b|hispano|🇲🇽|🇦🇷|🇨🇴|🇨🇱|🇵🇪|🇻🇪");
     private static final Pattern SPAIN = Pattern.compile("castellano|español|espanol|spanish|\\besp?\\b|\\bspa\\b|🇪🇸");
+    private static final Pattern BRAZIL = Pattern.compile("dublad[oa]|dual ?[aá]udio|pt-?br|\\bptbr\\b|brasil|portugu[eê]s|🇧🇷");
+    private static final Pattern PORTUGAL = Pattern.compile("pt-?pt|portugal|🇵🇹");
 
     /** 4K and Dolby Vision: this TV's decoder fails on the first and shows nothing with the second. */
     private static final Pattern HEAVY = Pattern.compile("2160|\\b4k\\b|\\buhd\\b|dolby ?vision|\\bdovi\\b|\\bdv\\b");
@@ -40,24 +42,40 @@ final class Streams {
         return HEAVY.matcher(text.toLowerCase(Locale.ROOT)).find();
     }
 
-    /** 0 Latin American audio, 1 no Spanish audio (original), 2 Spain's Spanish audio. */
     static int audio(String text) {
+        return audio(text, Ui.LANG);
+    }
+
+    /**
+     * Dubbed in the app's language: 0 its main dub (Latin American Spanish, Brazilian Portuguese), 1 none (the
+     * original), 2 its other one (Spain's, Portugal's). English: always 1, the original is what you want.
+     */
+    static int audio(String text, String lang) {
+        if (lang.equals("en")) return 1;
         String t = text.toLowerCase(Locale.ROOT);
         // A long row of flags lists the subtitles too ("🇬🇧 / 🇯🇵 / 🇪🇸 / 🇰🇷 …"): only words count then.
         if (flags(t) >= 4) t = FLAG.matcher(t).replaceAll("");
-        if (LATAM.matcher(t).find()) return 0;
-        return SPAIN.matcher(t).find() ? 2 : 1;
+        boolean pt = lang.equals("pt");
+        if ((pt ? BRAZIL : LATAM).matcher(t).find()) return 0;
+        return (pt ? PORTUGAL : SPAIN).matcher(t).find() ? 2 : 1;
     }
 
     /** A flag emoji: two regional indicator letters (U+1F1E6…U+1F1FF). */
     private static final Pattern FLAG = Pattern.compile("[\\x{1F1E6}-\\x{1F1FF}]{2}");
 
-    private static final Pattern SPANISH_FLAG = Pattern.compile("🇪🇸|🇲🇽|🇦🇷|🇨🇴|🇨🇱|🇵🇪|🇻🇪|\\bmulti-?subs?\\b");
+    private static final Pattern SPANISH_FLAG = Pattern.compile("🇪🇸|🇲🇽|🇦🇷|🇨🇴|🇨🇱|🇵🇪|🇻🇪");
+    private static final Pattern PORTUGUESE_FLAG = Pattern.compile("🇧🇷|🇵🇹");
+    private static final Pattern ENGLISH_FLAG = Pattern.compile("🇬🇧|🇺🇸");
 
-    /** A row of 4+ flags with a Spanish-speaking one (or "multi-sub"): the file carries Spanish subtitles. */
     static boolean embeddedSubs(String t) {
+        return embeddedSubs(t, Ui.LANG);
+    }
+
+    /** A row of 4+ flags with one of your language's (or "multi-sub"): the file carries subtitles in it. */
+    static boolean embeddedSubs(String t, String lang) {
         String l = t.toLowerCase(Locale.ROOT);
-        return (flags(l) >= 4 && SPANISH_FLAG.matcher(l).find()) || l.matches("(?s).*\\bmulti-?subs?\\b.*");
+        Pattern flag = lang.equals("es") ? SPANISH_FLAG : lang.equals("pt") ? PORTUGUESE_FLAG : ENGLISH_FLAG;
+        return (flags(l) >= 4 && flag.matcher(l).find()) || l.matches("(?s).*\\bmulti-?subs?\\b.*");
     }
 
     private static int flags(String t) {
@@ -66,22 +84,30 @@ final class Streams {
         return n;
     }
 
-    /** A subtitle language code in Spanish ("spa", "spn", "es", "es-419", "Spanish"…). */
-    static boolean spanish(String lang) {
-        String l = lang.toLowerCase(Locale.ROOT);
-        return l.startsWith("sp") || l.equals("es") || l.startsWith("es-") || l.startsWith("esp") || l.equals("lat");
+    static boolean ownSubs(String code) {
+        return ownSubs(code, Ui.LANG);
     }
 
-    /** OpenSubtitles' "spn" and "es-419"/"es-MX"…: Spanish from Latin America. */
-    static boolean latamSubs(String lang) {
-        String l = lang.toLowerCase(Locale.ROOT);
-        return l.equals("spn") || l.equals("lat") || l.contains("419") || l.contains("latin") || (l.startsWith("es-") && !l.equals("es-es"));
+    /** A subtitle language code in the app's language ("spa", "es-419", "Spanish"; "pob", "pt-BR"; "eng"…). */
+    static boolean ownSubs(String code, String lang) {
+        String l = code.toLowerCase(Locale.ROOT);
+        if (lang.equals("es")) return l.startsWith("sp") || l.equals("es") || l.startsWith("es-") || l.startsWith("esp") || l.equals("lat");
+        if (lang.equals("pt")) return l.startsWith("pt") || l.startsWith("por") || l.equals("pob") || l.equals("pb");
+        return l.startsWith("en");
+    }
+
+    /** Your language's main variant: OpenSubtitles' "spn", "es-419"/"es-MX" (Latin America); "pob", "pt-BR" (Brazil). */
+    static boolean mainSubs(String code, String lang) {
+        String l = code.toLowerCase(Locale.ROOT);
+        if (lang.equals("es")) return l.equals("spn") || l.equals("lat") || l.contains("419") || l.contains("latin") || (l.startsWith("es-") && !l.equals("es-es"));
+        if (lang.equals("pt")) return l.equals("pob") || l.equals("pb") || l.equals("pt-br") || l.contains("brazil");
+        return true;
     }
 
     /** One stream to try. */
     static final class Stream {
         String url;
-        boolean spanishAudio, heavy;
+        boolean ownAudio, heavy;            // ownAudio: dubbed in the app's language
         int kind;                           // audio(): 0 Latin American, 1 original, 2 Spain's
         boolean cached;                     // already in your debrid account: plays at once ("[TB+]", "⚡")
         boolean embeddedSubs;               // Spanish subtitles inside the file (a Spanish flag in a long row of them)
@@ -290,7 +316,7 @@ final class Streams {
                     st.url = s.optString("url");
                     String text = s.optString("name") + " " + s.optString("title") + " " + s.optString("description");
                     int a = audio(text);
-                    st.spanishAudio = a != 1;
+                    st.ownAudio = a != 1;
                     st.heavy = heavy(text);
                     st.kind = a;
                     st.quality = quality(text);
@@ -312,7 +338,7 @@ final class Streams {
                 }
                 kind.addAll(heavy);
             }
-            String subsUrl = kinds.get(0).isEmpty() ? spanishSubs(subs) : null;
+            String subsUrl = kinds.get(0).isEmpty() ? ownSubs(subs) : null;
             if (subsUrl != null) c.subtitles = peek ? subsUrl : download(subsUrl, new java.io.File(cacheDir, "subtitles.srt"));
             c.latino = kinds.get(0).size();
             c.spain = kinds.get(2).size();
@@ -360,15 +386,15 @@ final class Streams {
         return at;
     }
 
-    /** The best Spanish subtitles' link (Latin American first), or null. */
-    private static String spanishSubs(List<Future<JSONArray>> subs) {
+    /** The best subtitles' link in the app's language (Latin American or Brazilian first), or null. */
+    private static String ownSubs(List<Future<JSONArray>> subs) {
         String any = null;
         for (Future<JSONArray> f : subs) {
             JSONArray list = await(f);
             for (int i = 0; list != null && i < list.length(); i++) {
                 JSONObject s = list.optJSONObject(i);
-                if (s == null || !spanish(s.optString("lang")) || !s.optString("url").startsWith("http")) continue;
-                if (latamSubs(s.optString("lang"))) return s.optString("url");
+                if (s == null || !ownSubs(s.optString("lang")) || !s.optString("url").startsWith("http")) continue;
+                if (mainSubs(s.optString("lang"), Ui.LANG)) return s.optString("url");
                 if (any == null) any = s.optString("url");
             }
         }
@@ -564,24 +590,32 @@ final class Streams {
 
     /** Self-check of the language rules (no TV needed): java -cp out/classes io.freemytv.Streams */
     public static void main(String[] args) {
-        check(audio("Torrentio 1080p\nThe Movie 2024 🇲🇽 🇬🇧") == 0);
-        check(audio("[RD+] 4K Dual Latino-Inglés") == 0);
-        check(audio("1080p WEB-DL\n👤 120 💾 2 GB") == 1);
-        check(audio("1080p WEB H264-KBBQ\n🇬🇧 / 🇯🇵 / 🇮🇹 / 🇵🇹 / 🇪🇸 / 🇰🇷 / 🇫🇷") == 1);   // subtitles, not the audio
-        check(audio("1080p Dual Latino 🇲🇽 / 🇬🇧 / 🇯🇵 / 🇰🇷") == 0);
-        check(audio("1080p 🇪🇸 / 🇬🇧") == 2);
+        check(audio("Torrentio 1080p\nThe Movie 2024 🇲🇽 🇬🇧", "es") == 0);
+        check(audio("[RD+] 4K Dual Latino-Inglés", "es") == 0);
+        check(audio("1080p WEB-DL\n👤 120 💾 2 GB", "es") == 1);
+        check(audio("1080p WEB H264-KBBQ\n🇬🇧 / 🇯🇵 / 🇮🇹 / 🇵🇹 / 🇪🇸 / 🇰🇷 / 🇫🇷", "es") == 1);   // subtitles, not the audio
+        check(audio("1080p Dual Latino 🇲🇽 / 🇬🇧 / 🇯🇵 / 🇰🇷", "es") == 0);
+        check(audio("1080p 🇪🇸 / 🇬🇧", "es") == 2);
         check(quality("A S01E07 1080p WEB H264").equals("1080p") && quality("Movie 2160p HDR").equals("4K") && quality("XviD").isEmpty());
         check(size("👤 38 💾 2.28 GB ⚙️ EZTV").equals("2.28 GB") && size("no size").isEmpty());
-        check(embeddedSubs("1080p WEB H264-KBBQ\n🇬🇧 / 🇯🇵 / 🇮🇹 / 🇵🇹 / 🇪🇸 / 🇰🇷") && !embeddedSubs("1080p 🇬🇧 / 🇯🇵 / 🇰🇷 / 🇫🇷")
-                && !embeddedSubs("1080p 🇪🇸") && embeddedSubs("Show S01 1080p Multi-Sub"));
+        check(embeddedSubs("1080p WEB H264-KBBQ\n🇬🇧 / 🇯🇵 / 🇮🇹 / 🇵🇹 / 🇪🇸 / 🇰🇷", "es") && !embeddedSubs("1080p 🇬🇧 / 🇯🇵 / 🇰🇷 / 🇫🇷", "es")
+                && !embeddedSubs("1080p 🇪🇸", "es") && embeddedSubs("Show S01 1080p Multi-Sub", "es"));
         check(cached("[TB+] Torrentio\n1080p") && cached("[TB⚡] Comet") && !cached("[TB download] Torrentio") && !cached("Torrentio 1080p"));
-        check(audio("Película 🇪🇸 Castellano") == 2);
-        check(audio("Movie.2024.1080p.SPA.ENG") == 2);
-        check(audio("Platinum Edition 1080p") == 1);   // "lat" only as a whole word
-        check(latamSubs("spn") && latamSubs("es-419") && latamSubs("es-MX") && !latamSubs("spa") && !latamSubs("es-ES"));
+        check(audio("Película 🇪🇸 Castellano", "es") == 2);
+        check(audio("Movie.2024.1080p.SPA.ENG", "es") == 2);
+        check(audio("Platinum Edition 1080p", "es") == 1);   // "lat" only as a whole word
+        check(mainSubs("spn", "es") && mainSubs("es-419", "es") && mainSubs("es-MX", "es") && !mainSubs("spa", "es") && !mainSubs("es-ES", "es"));
         check(heavy("Torrentio\n4k DV | HDR") && heavy("Movie.2024.2160p.WEB-DL") && heavy("UHD BluRay") && heavy("Dolby Vision"));
         check(!heavy("1080p WEB-DL HDR10") && !heavy("720p") && !heavy("Devil.May.Cry.1080p") && !heavy("Advent"));
-        check(spanish("spa") && spanish("spn") && spanish("es-419") && spanish("Spanish") && !spanish("eng") && !spanish("kor"));
+        check(ownSubs("spa", "es") && ownSubs("spn", "es") && ownSubs("es-419", "es") && ownSubs("Spanish", "es") && !ownSubs("eng", "es") && !ownSubs("kor", "es"));
+        // Portuguese: Brazil's dub first, Portugal's second; English: no dubs to look for.
+        check(audio("1080p Dual Áudio 🇧🇷 / 🇺🇸", "pt") == 0 && audio("Filme 2024 Dublado 1080p", "pt") == 0);
+        check(audio("1080p PT-PT 🇵🇹", "pt") == 2 && audio("1080p 🇲🇽 Latino", "pt") == 1 && audio("1080p WEB-DL", "pt") == 1);
+        check(audio("1080p Dual Latino 🇲🇽 / 🇬🇧", "en") == 1);
+        check(embeddedSubs("1080p\n🇬🇧 / 🇯🇵 / 🇧🇷 / 🇰🇷", "pt") && !embeddedSubs("1080p\n🇬🇧 / 🇯🇵 / 🇪🇸 / 🇰🇷", "pt"));
+        check(ownSubs("pob", "pt") && ownSubs("por", "pt") && ownSubs("pt-BR", "pt") && !ownSubs("spa", "pt") && !ownSubs("eng", "pt"));
+        check(mainSubs("pob", "pt") && mainSubs("pt-BR", "pt") && !mainSubs("por", "pt"));
+        check(ownSubs("eng", "en") && ownSubs("en-US", "en") && !ownSubs("spa", "en"));
         System.out.println("ok");
     }
 

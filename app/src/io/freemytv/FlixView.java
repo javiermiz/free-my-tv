@@ -224,7 +224,8 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
 
             @Override public void onDone(boolean failed) {
                 if (failed && onVideoPage())
-                    Toast.makeText(activity, es("No se pudo reproducir", "Couldn't play it"), Toast.LENGTH_SHORT).show();
+                    Toast.makeText(activity, Ui.t("No se pudo reproducir",
+                            "Couldn't play it", "Não deu para reproduzir"), Toast.LENGTH_SHORT).show();
                 stopWatch();
                 if (onVideoPage()) closeDetail();
             }
@@ -234,13 +235,6 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
         addView(screen, new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT));
         shelf = HomeApps.shelf(a, false);
         rebuild(true);
-    }
-
-    /** Spanish when the app is set to Spanish (or the TV is, on "auto"); otherwise English. */
-    static String es(String spanish, String english) {
-        String lang = Config.LANGUAGE.trim().toLowerCase(Locale.ROOT);
-        boolean es = lang.startsWith("es") || (lang.equals("auto") && "es".equals(Locale.getDefault().getLanguage()));
-        return es ? spanish : english;
     }
 
     // MARK: - Lifecycle (called by HomeActivity)
@@ -336,7 +330,8 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
             final List<HomeApps.Item> o = HomeApps.others(c);
             final List<HomeApps.Item> x = new ArrayList<>(HomeApps.allInputs(c));
             x.add(HomeApps.settings());
-            x.add(HomeApps.action(HomeApps.ANDROID_SETTINGS, "tv-settings", es("Ajustes de la TV", "TV Settings"), "tv_settings"));
+            x.add(HomeApps.action(HomeApps.ANDROID_SETTINGS, "tv-settings", Ui.t("Ajustes de la TV",
+                    "TV Settings", "Ajustes da TV"), "tv_settings"));
             handler.post(() -> {
                 shelf = s;
                 others = o;
@@ -354,13 +349,13 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
         List<Recs.Pick> going = new ArrayList<>();
         for (Recs.Pick p : recs.resumes()) if (fits(p, kind)) going.add(p);
         if (!going.isEmpty()) {
-            Row r = row(out, es("Continuar viendo", "Continue watching"));
+            Row r = row(out, Ui.t("Continuar viendo", "Continue watching", "Continuar assistindo"));
             for (Recs.Pick p : going) r.cards.add(card(p));
         }
         List<Recs.Pick> listed = new ArrayList<>();
         for (Recs.Pick p : recs.favorites()) if (fits(p, kind)) listed.add(p);
         if (!listed.isEmpty()) {
-            Row r = row(out, es("Mi lista", "My list"));
+            Row r = row(out, Ui.t("Mi lista", "My list", "Minha lista"));
             for (Recs.Pick p : listed) r.cards.add(card(p));
         }
         // What's new (new episodes of your shows, premieres) right under it, before everything else.
@@ -376,7 +371,7 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
         featuredIndex = featuredList.isEmpty() ? 0 : Math.min(featuredIndex, featuredList.size() - 1);
         featured = featuredList.isEmpty() ? null : featuredList.get(featuredIndex);
         if (!mine.isEmpty()) {
-            Row r = row(out, es("Para ti", "For you"));
+            Row r = row(out, Ui.t("Para ti", "For you", "Para você"));
             for (Recs.Pick p : mine) r.cards.add(card(p));
         }
         for (Recs.Row rr : recs.rows(platform)) if (!rr.top) addRow(out, rr, kind);   // a platform's own rows, or everyone's
@@ -635,7 +630,7 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
         String chosen = platform;
         platforms.clear();
         Platform all = new Platform();
-        all.name = es("Para ti", "For you");
+        all.name = Ui.t("Para ti", "For you", "Para você");
         all.accent = DEFAULT_ACCENT;
         all.ground = 0xFF000000;
         platforms.add(all);
@@ -669,12 +664,12 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
 
     private String sideLabel(int i) {
         switch (i) {
-            case 0: return es("Buscar", "Search");
-            case 1: return es("Inicio", "Home");
-            case 2: return es("Series", "Shows");
-            case 3: return es("Películas", "Movies");
+            case 0: return Ui.t("Buscar", "Search", "Buscar");
+            case 1: return Ui.t("Inicio", "Home", "Início");
+            case 2: return Ui.t("Series", "Shows", "Séries");
+            case 3: return Ui.t("Películas", "Movies", "Filmes");
             case SIDE_APPS: return "Apps";
-            default: return es("Ajustes", "Settings");
+            default: return Ui.t("Ajustes", "Settings", "Ajustes");
         }
     }
 
@@ -736,7 +731,8 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
             activity.startActivity(in.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK));
         } catch (RuntimeException e) {
             AppLog.w("couldn't open " + in.getAction() + ": " + e.getMessage());
-            Toast.makeText(activity, es("No se pudo abrir", "Couldn't open it"), Toast.LENGTH_SHORT).show();
+            Toast.makeText(activity, Ui.t("No se pudo abrir",
+                    "Couldn't open it", "Não deu para abrir"), Toast.LENGTH_SHORT).show();
         }
     }
 
@@ -866,10 +862,12 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
     private String makeBadgeText(String link) {
         Streams.Badge b = Streams.knownBadge(link);
         if (b == null) return badgeAsked.contains(link) ? "…" : "";
-        if (b.none) return es("Sin versión", "None");
+        if (b.none) return Ui.t("Sin versión", "None", "Sem versão");
         StringBuilder t = new StringBuilder();
         if (b.cached) t.append("⚡ ");
-        t.append(b.latino ? "LAT" : b.spain ? "CAST" : es("VO", "OV"));   // VO: versión original
+        // Dubbed in your language (LAT: Latin American, CAST: Spain's; DUB, PT-PT) or VO: the original version.
+        t.append(b.latino ? Ui.t("LAT", "DUB", "DUB") : b.spain ? Ui.t("CAST",
+                "DUB", "PT-PT") : Ui.t("VO", "OV", "VO"));
         if (b.subs) t.append(" · SUB");
         return t.toString();
     }
@@ -943,7 +941,8 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
                     findingSince = 0;
                     screen.invalidate();
                     if (choice != null) play(choice, p, r);
-                    else Toast.makeText(activity, es("No encontré dónde verlo", "Couldn't find it to watch"), Toast.LENGTH_SHORT).show();
+                    else Toast.makeText(activity, Ui.t("No encontré dónde verlo",
+                            "Couldn't find it to watch", "Não achei onde assistir"), Toast.LENGTH_SHORT).show();
                 });
             }).start();
             return;
@@ -954,7 +953,7 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
     private void play(Streams.Choice choice, Recs.Pick p, RectF r) {
         String title = p == null ? "" : p.title;
         String[] v = choice.video.split(":");
-        if (v.length >= 3) title += "  ·  " + es("T", "S") + v[v.length - 2] + " E" + v[v.length - 1];
+        if (v.length >= 3) title += "  ·  " + Ui.t("T", "S", "T") + v[v.length - 2] + " E" + v[v.length - 1];
         PlayerActivity.choice = choice;
         PlayerActivity.title = title;
         PlayerActivity.name = p == null ? "" : p.title;
@@ -970,7 +969,8 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
 
     private void open(HomeApps.Item it, RectF r) {
         if (!HomeApps.open(activity, it, this, Math.round(r.left), Math.round(r.top), Math.round(r.width()), Math.round(r.height())))
-            Toast.makeText(activity, es("No se pudo abrir ", "Couldn't open ") + it.label, Toast.LENGTH_SHORT).show();
+            Toast.makeText(activity, Ui.t("No se pudo abrir ",
+                    "Couldn't open ", "Não deu para abrir ") + it.label, Toast.LENGTH_SHORT).show();
     }
 
     // MARK: - A show's page: its seasons and episodes, Stremio opens right on the one you choose
@@ -1207,7 +1207,8 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
         if (Float.isNaN(logoTop)) logoTop = drawBlockUp(c, p.title, billTitle, x, y, 1000 * k, 2);
         fill.setColor(accent);
         c.drawRect(x, logoTop - 38 * k, x + 6 * k, logoTop - 16 * k, fill);
-        c.drawText(d.movie ? es("PELÍCULA", "FILM") : es("SERIE", "SERIES"), x + 18 * k, logoTop - 18 * k, kindLabel);
+        c.drawText(d.movie ? Ui.t("PELÍCULA",
+                "FILM", "FILME") : Ui.t("SERIE", "SERIES", "SÉRIE"), x + 18 * k, logoTop - 18 * k, kindLabel);
         float ty = y + 16 * k;
         if (namedApart(p)) ty = drawBlockDown(c, p.title, nameUnder, x, ty, 1000 * k, 1) + 6 * k;
         ty = drawBlockDown(c, info(p), billMeta, x, ty, 1000 * k, 1) + 10 * k;
@@ -1215,7 +1216,8 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
         // Resume and From the start (opened from Continue watching), then the seasons.
         float px = x;
         if (d.video) {
-            String[] labels = {es("Reanudar", "Resume") + episodeOf(p), es("Desde el inicio", "From the start")};
+            String[] labels = {Ui.t("Reanudar", "Resume", "Continuar") + episodeOf(p), Ui.t("Desde el inicio",
+                    "From the start", "Do início")};
             for (int i = 0; i < 2; i++) {
                 boolean focused = d.row == 0 && d.action == i;
                 float lead = i == 0 ? 40 * k : 0, pw = pill.measureText(labels[i]) + 48 * k + lead;
@@ -1244,12 +1246,13 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
         if (d.movie) {
             // A movie: no seasons or episodes.
         } else if (d.seasons == null) {
-            c.drawText(es("Cargando…", "Loading…"), px, (PILL_Y + 36) * k, meta);
+            c.drawText(Ui.t("Cargando…", "Loading…", "Carregando…"), px, (PILL_Y + 36) * k, meta);
         } else {
             int first = Math.max(0, Math.min(d.season - 5, d.seasons.size() - 7));
             for (int i = first; i < d.seasons.size() && px < w; i++) {
                 String name = d.seasons.get(i).optString("name");
-                String label = name.isEmpty() ? es("Temporada ", "Season ") + d.seasons.get(i).optInt("season_number") : name;
+                String label = name.isEmpty() ? Ui.t("Temporada ",
+                        "Season ", "Temporada ") + d.seasons.get(i).optInt("season_number") : name;
                 boolean focused = d.row == 0 && d.action < 0 && i == d.season, chosen = i == d.season;
                 float tw = pill.measureText(label), pw = tw + 48 * k;
                 r2.set(px, PILL_Y * k, px + pw, (PILL_Y + PILL_H) * k);
@@ -1274,14 +1277,17 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
             if (!d.episodes.isEmpty()) {
                 org.json.JSONObject e = d.episodes.get(d.episode);
                 float by = top + EP_H * k + 34 * k;
-                StringBuilder line = new StringBuilder(es("T", "S") + d.seasons.get(d.season).optInt("season_number") + " · E" + e.optInt("episode_number"));
+                StringBuilder line = new StringBuilder(Ui.t("T",
+                        "S",
+                        "T") + d.seasons.get(d.season).optInt("season_number") + " · E" + e.optInt("episode_number"));
                 if (e.optInt("runtime") > 0) line.append(" · ").append(e.optInt("runtime")).append(" min");
                 String date = e.optString("air_date", "");
                 if (date.length() >= 4) line.append(" · ").append(date.substring(0, 4));
                 by = drawBlockDown(c, e.optString("name") + "   " + line, meta, x, by, 1500 * k, 1) + 8 * k;
                 drawBlockDown(c, e.optString("overview"), overview, x, by, 1300 * k, 2);
             } else {
-                c.drawText(es("Sin capítulos todavía", "No episodes yet"), x, top + 40 * k, meta);
+                c.drawText(Ui.t("Sin capítulos todavía",
+                        "No episodes yet", "Ainda sem episódios"), x, top + 40 * k, meta);
             }
         }
         if (layer >= 0) c.restoreToCount(layer);
@@ -1304,7 +1310,9 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
         }
         if (soon) {
             String date = e.optString("air_date", "");
-            drawBadge(c, es("Próximamente", "Coming soon") + (date.length() >= 10 ? " · " + date.substring(8, 10) + "/" + date.substring(5, 7) : ""),
+            drawBadge(c, Ui.t("Próximamente",
+                    "Coming soon",
+                    "Em breve") + (date.length() >= 10 ? " · " + date.substring(8, 10) + "/" + date.substring(5, 7) : ""),
                     r.right - 14 * k, r.top + 40 * k, accent, 0xFF000000);
         }
         String t = TextUtils.ellipsize(e.optInt("episode_number") + ". " + e.optString("name"), new TextPaint(peekTitle),
@@ -1321,7 +1329,9 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
         if (held != null && (focusRow == -1 || c.pick != null)) {
             // A title held: in or out of My list.
             boolean in = recs.toggleFavorite(held);
-            Toast.makeText(getContext(), in ? es("Agregado a Mi lista", "Added to My list") : es("Quitado de Mi lista", "Removed from My list"),
+            Toast.makeText(getContext(), in ? Ui.t("Agregado a Mi lista",
+                    "Added to My list",
+                    "Adicionado à Minha lista") : Ui.t("Quitado de Mi lista", "Removed from My list", "Removido da Minha lista"),
                     Toast.LENGTH_SHORT).show();
             click.open();
             return true;
@@ -1334,11 +1344,12 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
         List<String> labels = new ArrayList<>();
         final List<Runnable> actions = new ArrayList<>();
         if (at < 0) {
-            labels.add(es("Agregar a Tus apps", "Add to Your apps"));
+            labels.add(Ui.t("Agregar a Tus apps", "Add to Your apps", "Adicionar a Seus apps"));
             actions.add(() -> {
                 if (pkgs.size() >= HomeApps.MAX_SHELF) {
-                    Toast.makeText(ctx, es("Ya tienes " + HomeApps.MAX_SHELF + " apps: quita una primero.",
-                            "You already have " + HomeApps.MAX_SHELF + " apps: remove one first."), Toast.LENGTH_LONG).show();
+                    Toast.makeText(ctx, Ui.t("Ya tienes " + HomeApps.MAX_SHELF + " apps: quita una primero.",
+                            "You already have " + HomeApps.MAX_SHELF + " apps: remove one first.",
+                            "Você já tem " + HomeApps.MAX_SHELF + " apps: tire um primeiro."), Toast.LENGTH_LONG).show();
                     return;
                 }
                 pkgs.add(it.pkg);
@@ -1346,19 +1357,21 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
                 reloadApps();
             });
         } else {
-            labels.add(es("Mover", "Move"));
+            labels.add(Ui.t("Mover", "Move", "Mover"));
             actions.add(() -> {
                 moving = true;
-                Toast.makeText(ctx, es("← → para moverla, OK para terminar.", "← → to move it, OK when done."), Toast.LENGTH_LONG).show();
+                Toast.makeText(ctx, Ui.t("← → para moverla, OK para terminar.",
+                        "← → to move it, OK when done.",
+                        "← → para mover, OK para terminar."), Toast.LENGTH_LONG).show();
             });
-            labels.add(es("Quitar de Tus apps", "Remove from Your apps"));
+            labels.add(Ui.t("Quitar de Tus apps", "Remove from Your apps", "Tirar de Seus apps"));
             actions.add(() -> {
                 pkgs.remove(at);
                 HomeApps.saveShelf(ctx, pkgs);
                 reloadApps();
             });
         }
-        labels.add(es("Cancelar", "Cancel"));
+        labels.add(Ui.t("Cancelar", "Cancel", "Cancelar"));
         actions.add(() -> {});
         new android.app.AlertDialog.Builder(activity, android.R.style.Theme_DeviceDefault_Dialog_Alert)
                 .setTitle(it.label)
@@ -1417,7 +1430,7 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
             // YouTube's Spanish captions when it has them).
             final String tag = found.substring(found.indexOf('|') + 1);
             final boolean mute = false;
-            final boolean subs = !tag.equals(es("es", "en")) && !tag.equals("music");
+            final boolean subs = !tag.equals(Ui.LANG) && !tag.equals("music");
             trailerKey = key;
             RectF r = focusRow == -1 ? billboardRect(new RectF()) : wideCardRect(new RectF());
             trailerRect.set(r);
@@ -1430,7 +1443,7 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
             // Started after the layout pass, so the page measures this card, not the last one.
             float d = getResources().getDisplayMetrics().density;
             final String call = String.format(Locale.US, "play('%s',%.1f,%.1f,%b,'%s',%b)", key, r.width() / d, r.height() / d,
-                    subs, es("es", "en"), mute);
+                    subs, Ui.LANG, mute);
             trailerBox.post(() -> {
                 if (key.equals(trailerKey)) web.evaluateJavascript(call, null);
             });
@@ -1586,7 +1599,8 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
                 if (asked != watchAsk || !running || now != p) return;
                 if (choice == null) {
                     if (page) {
-                        Toast.makeText(activity, es("No encontré dónde verlo", "Couldn't find it to watch"), Toast.LENGTH_SHORT).show();
+                        Toast.makeText(activity, Ui.t("No encontré dónde verlo",
+                                "Couldn't find it to watch", "Não achei onde assistir"), Toast.LENGTH_SHORT).show();
                         closeDetail();
                     }
                     return;
@@ -1624,13 +1638,14 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
 
     private String episodeTitle(Recs.Pick p, Streams.Choice choice) {
         String[] v = choice.video.split(":");
-        return v.length >= 3 ? p.title + "  ·  " + es("T", "S") + v[v.length - 2] + " E" + v[v.length - 1] : p.title;
+        return v.length >= 3 ? p.title + "  ·  " + Ui.t("T",
+                "S", "T") + v[v.length - 2] + " E" + v[v.length - 1] : p.title;
     }
 
     /** " T1:E2" of the episode in progress ("" for a movie). */
     private static String episodeOf(Recs.Pick p) {
         String[] v = p.link.split(":");
-        return v.length >= 4 ? " " + es("T", "S") + v[v.length - 2] + ":E" + v[v.length - 1] : "";
+        return v.length >= 4 ? " " + Ui.t("T", "S", "T") + v[v.length - 2] + ":E" + v[v.length - 1] : "";
     }
 
     /** OK on a title in progress: its page over its video (already playing in the card, or starting now). */
@@ -1998,7 +2013,7 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
             // Nothing of this platform to show (yet): its logo and a button that opens it.
             Platform pl = platforms.get(platformIndex);
             float x = b.left + 64 * k, bottom = b.bottom - 64 * k;
-            String cta = es("Abrir ", "Open ") + pl.name;
+            String cta = Ui.t("Abrir ", "Open ", "Abrir ") + pl.name;
             float bh = 62 * k, bw = button.measureText(cta) + 92 * k;
             r1.set(x, bottom - bh, x + bw, bottom);
             fill.setColor(0xFFFFFFFF);
@@ -2017,7 +2032,7 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
         if (p != null) {
             float x = b.left + 64 * k, bottom = b.bottom - 64 * k;
             // Bottom up: buttons, overview, meta, title, label.
-            String cta = p.resuming ? es("Reanudar", "Resume") : es("Reproducir", "Play");
+            String cta = p.resuming ? Ui.t("Reanudar", "Resume", "Continuar") : Ui.t("Reproducir", "Play", "Assistir");
             float bh = 62 * k, bw = button.measureText(cta) + 92 * k;
             r1.set(x, bottom - bh, x + bw, bottom);
             fill.setColor(0xFFFFFFFF);
@@ -2032,7 +2047,8 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
             y = (Float.isNaN(logoTop) ? drawBlockUp(c, p.title, billTitle, x, y, 1000 * k, 2) : logoTop) - 18 * k;
             fill.setColor(accent);
             c.drawRect(x, y - 20 * k, x + 6 * k, y + 2 * k, fill);
-            c.drawText("tv".equals(p.kind) ? es("SERIE", "SERIES") : es("PELÍCULA", "FILM"), x + 18 * k, y, kindLabel);
+            c.drawText("tv".equals(p.kind) ? Ui.t("SERIE", "SERIES", "SÉRIE") : Ui.t("PELÍCULA",
+                    "FILM", "FILME"), x + 18 * k, y, kindLabel);
             // Which of the featured titles this is (← → or wait for the next).
             int n = featuredList.size();
             float dot = 10 * k, dx = b.right - 56 * k - (n - 1) * 22 * k;
@@ -2088,7 +2104,8 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
                 fill.setShader(null);
                 fill.setColor(accent);
                 c.drawRoundRect(r2, 8 * k, 8 * k, fill);
-                c.drawText(es("← Mover →", "← Move →"), r2.left + 14 * k, r2.centerY() + Ui.halfCap(badge), badge);
+                c.drawText(Ui.t("← Mover →",
+                        "← Move →", "← Mover →"), r2.left + 14 * k, r2.centerY() + Ui.halfCap(badge), badge);
                 badge.setColor(0xFFFFFFFF);
             }
             x += cw + GAP * k;
@@ -2150,11 +2167,14 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
                 c.drawText(t, x, y, wideTitle);
                 top = y - 40 * k;
             }
-            c.drawText("tv".equals(p.kind) ? es("SERIE", "SERIES") : es("PELÍCULA", "FILM"), x, top - 14 * k, kindLabel);
+            c.drawText("tv".equals(p.kind) ? Ui.t("SERIE", "SERIES", "SÉRIE") : Ui.t("PELÍCULA",
+                    "FILM", "FILME"), x, top - 14 * k, kindLabel);
             float bx = r.right - 16 * k;
             bx = drawBadge(c, Recs.serviceName(p), bx, r.bottom - 22 * k, 0x99000000, 0xFFFFFFFF);
-            if (p.resuming) drawBadge(c, es("Continuar viendo", "Continue watching"), bx - 10 * k, r.bottom - 22 * k, accent, 0xFF000000);
-            else if (p.sagaNext) drawBadge(c, es("Sigue en la saga", "Next in the saga"), bx - 10 * k, r.bottom - 22 * k, accent, 0xFF000000);
+            if (p.resuming) drawBadge(c, Ui.t("Continuar viendo",
+                    "Continue watching", "Continuar assistindo"), bx - 10 * k, r.bottom - 22 * k, accent, 0xFF000000);
+            else if (p.sagaNext) drawBadge(c, Ui.t("Sigue en la saga",
+                    "Next in the saga", "Continua na saga"), bx - 10 * k, r.bottom - 22 * k, accent, 0xFF000000);
             c.drawRoundRect(r, rad, rad, ring);
         } else if (Float.isNaN(drawLogo(c, p, r.centerX(), r.bottom - 24 * k, r.width() * 0.8f, r.height() * 0.2f, true))) {
             String t = TextUtils.ellipsize(p.title, new TextPaint(peekTitle), r.width() - 24 * k, TextUtils.TruncateAt.END).toString();

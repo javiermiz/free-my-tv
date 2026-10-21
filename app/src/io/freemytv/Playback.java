@@ -161,7 +161,7 @@ final class Playback extends FrameLayout {
         nextChoiceFor = null;
         hud.mode = PlayerHud.NONE;
         hud.loading = true;
-        hud.loadingFrom = c.startAt > 5000 ? FlixView.es("Sigue desde ", "From ") + clock(c.startAt) : "";
+        hud.loadingFrom = c.startAt > 5000 ? Ui.t("Sigue desde ", "From ", "Continua de ") + clock(c.startAt) : "";
         titles();
         loadSeries();
         DefaultHttpDataSource.Factory http = new DefaultHttpDataSource.Factory().setAllowCrossProtocolRedirects(true)
@@ -258,15 +258,16 @@ final class Playback extends FrameLayout {
         ready = false;
         rendered = false;
         MediaItem.Builder item = new MediaItem.Builder().setUri(s.url);
-        // Spanish subtitles ready either way; whether they show is settled by the audio that plays (onTracksChanged),
-        // the stream's name only guesses until then.
+        // Subtitles in your language ready either way; whether they show is settled by the audio that plays
+        // (onTracksChanged), the stream's name only guesses until then.
+        String[] mine = Ui.LANG.equals("es") ? new String[] {"es-419", "es"} : Ui.LANG.equals("pt") ? new String[] {"pt-BR", "pt"} : new String[] {"en"};
         TrackSelectionParameters.Builder tracks = player.getTrackSelectionParameters().buildUpon().clearOverrides()
-                .setPreferredAudioLanguages("es-419", "es").setPreferredTextLanguages("es-419", "es")
-                .setIgnoredTextSelectionFlags(0).setTrackTypeDisabled(C.TRACK_TYPE_TEXT, s.spanishAudio);
+                .setPreferredAudioLanguages(mine).setPreferredTextLanguages(mine)
+                .setIgnoredTextSelectionFlags(0).setTrackTypeDisabled(C.TRACK_TYPE_TEXT, s.ownAudio);
         if (c.subtitles != null && new File(c.subtitles).length() > 0) {
             item.setSubtitleConfigurations(Collections.singletonList(
                     new MediaItem.SubtitleConfiguration.Builder(Uri.fromFile(new File(c.subtitles)))
-                            .setMimeType(MimeTypes.APPLICATION_SUBRIP).setLanguage("es")
+                            .setMimeType(MimeTypes.APPLICATION_SUBRIP).setLanguage(Ui.LANG)
                             .setSelectionFlags(C.SELECTION_FLAG_DEFAULT | C.SELECTION_FLAG_FORCED).build()));
         }
         player.setTrackSelectionParameters(tracks.build());
@@ -312,7 +313,7 @@ final class Playback extends FrameLayout {
                 for (int i = 0; i < g.length; i++) if (g.isTrackSelected(i)) lang = g.getTrackFormat(i).language;
             }
             boolean labeled = lang != null && !lang.equals("und");
-            boolean off = labeled ? Streams.spanish(lang) : c.streams.get(index).spanishAudio;
+            boolean off = labeled ? Streams.ownSubs(lang) : c.streams.get(index).ownAudio;
             TrackSelectionParameters now = player.getTrackSelectionParameters();
             if (now.disabledTrackTypes.contains(C.TRACK_TYPE_TEXT) == off) return;
             AppLog.w("player: audio " + (labeled ? lang : "unlabeled") + ", subtitles " + (off ? "off" : "on"));
@@ -572,7 +573,8 @@ final class Playback extends FrameLayout {
         hud.elapsed = clock(pos);
         hud.left = "−" + clock(Math.max(0, d - pos));
         long wall = System.currentTimeMillis();
-        hud.clock = Ui.time(wall) + "   ·   " + FlixView.es("termina ", "ends ") + Ui.time(wall + Math.max(0, d - pos));
+        hud.clock = Ui.time(wall) + "   ·   " + Ui.t("termina ",
+                "ends ", "termina ") + Ui.time(wall + Math.max(0, d - pos));
     }
 
     // MARK: - Titles and what's playing
@@ -582,11 +584,12 @@ final class Playback extends FrameLayout {
         boolean series = "series".equals(c.type);
         hud.kicker = series && name != null ? name.toUpperCase(Locale.ROOT) : "";
         if (series && current != null) {
-            hud.title = FlixView.es("T", "S") + current.season + " · E" + current.episode
+            hud.title = Ui.t("T", "S", "T") + current.season + " · E" + current.episode
                     + (current.name.isEmpty() ? "" : "  " + current.name);
         } else if (series) {
             String[] v = c.video.split(":");
-            hud.title = v.length >= 3 && c.id.startsWith("tt") ? FlixView.es("T", "S") + v[v.length - 2] + " · E" + v[v.length - 1]
+            hud.title = v.length >= 3 && c.id.startsWith("tt") ? Ui.t("T",
+                    "S", "T") + v[v.length - 2] + " · E" + v[v.length - 1]
                     : title == null ? "" : title;
         } else {
             hud.title = title == null ? "" : title;
@@ -609,7 +612,8 @@ final class Playback extends FrameLayout {
         }
         boolean subs = text != null && !player.getTrackSelectionParameters().disabledTrackTypes.contains(C.TRACK_TYPE_TEXT);
         StringBuilder sb = new StringBuilder(audio != null ? audio : kind(s));
-        sb.append(" · ").append(subs ? FlixView.es("Subtítulos: ", "Subtitles: ") + text : FlixView.es("Sin subtítulos", "No subtitles"));
+        sb.append(" · ").append(subs ? Ui.t("Subtítulos: ", "Subtitles: ", "Legendas: ") + text : Ui.t("Sin subtítulos",
+                "No subtitles", "Sem legendas"));
         if (!s.quality.isEmpty()) sb.append(" · ").append(s.quality);
         hud.version = sb.toString();
         hud.invalidate();
@@ -618,19 +622,21 @@ final class Playback extends FrameLayout {
     /** What the loading card says: no Latin American dub (if so), the version tried, and how many are left. */
     private void loadingLines() {
         hud.loadingLines.clear();
-        if (c.latino == 0) hud.loadingLines.add(FlixView.es("Doblaje latino: no hay para este título", "Latin American dub: none for this title"));
+        if (c.latino == 0) hud.loadingLines.add(Ui.t("Doblaje latino: no hay para este título",
+                "Dub: none for this title", "Dublado: não tem para este título"));
         hud.loadingNow = hud.loadingLines.size();
         hud.loadingLines.add(describe(c.streams.get(index)));
         int left = c.streams.size() - index - 1;
-        if (left > 0) hud.loadingLines.add(FlixView.es("Si falla: " + left + (left == 1 ? " versión más" : " versiones más"),
-                "If it fails: " + left + " more"));
+        if (left > 0) hud.loadingLines.add(Ui.t("Si falla: " + left + (left == 1 ? " versión más" : " versiones más"),
+                "If it fails: " + left + " more", "Se falhar: mais " + left + (left == 1 ? " versão" : " versões")));
         hud.invalidate();
     }
 
     private String kind(Streams.Stream s) {
-        return s.kind == 0 ? FlixView.es("Español latino", "Latin American Spanish")
-                : s.kind == 2 ? FlixView.es("Español (España)", "Spanish (Spain)")
-                : c.subtitles != null || s.embeddedSubs ? FlixView.es("Original con subtítulos", "Original with subtitles") : FlixView.es("Original", "Original");
+        return s.kind == 0 ? Ui.t("Español latino", "Dubbed", "Português (Brasil)")
+                : s.kind == 2 ? Ui.t("Español (España)", "Dubbed", "Português (Portugal)")
+                : c.subtitles != null || s.embeddedSubs ? Ui.t("Original con subtítulos",
+                        "Original with subtitles", "Original com legendas") : Ui.t("Original", "Original", "Original");
     }
 
     private String describe(Streams.Stream s) {
@@ -640,17 +646,21 @@ final class Playback extends FrameLayout {
     /** A track's language in words ("Coreano", "Español (Latinoamérica)"), with its label and "forced" if so. */
     private static String language(Format f) {
         String l = f.language, out;
-        Locale ui = new Locale(FlixView.es("es", "en"));
+        Locale ui = new Locale(Ui.LANG);
         if (l == null || l.isEmpty() || l.equals("und")) {
-            out = f.label != null && !f.label.isEmpty() ? f.label : FlixView.es("Sin idioma", "Unlabeled");
+            out = f.label != null && !f.label.isEmpty() ? f.label : Ui.t("Sin idioma", "Unlabeled", "Sem idioma");
         } else {
             Locale loc = Locale.forLanguageTag(l);
             String d = loc.getDisplayLanguage(ui);
             out = d.isEmpty() ? l : Character.toUpperCase(d.charAt(0)) + d.substring(1);
             if ("es".equals(loc.getLanguage())) {
                 String country = loc.getCountry();
-                if (country.equals("ES")) out += FlixView.es(" (España)", " (Spain)");
-                else if (!country.isEmpty()) out += FlixView.es(" (Latinoamérica)", " (Latin America)");
+                if (country.equals("ES")) out += Ui.t(" (España)", " (Spain)", " (Espanha)");
+                else if (!country.isEmpty()) out += Ui.t(" (Latinoamérica)", " (Latin America)", " (América Latina)");
+            } else if ("pt".equals(loc.getLanguage())) {
+                String country = loc.getCountry();
+                if (country.equals("BR")) out += " (Brasil)";
+                else if (country.equals("PT")) out += " (Portugal)";
             }
             // The file's own name for it ("Español de España", "Latino") says more than the language; else both.
             String label = f.label == null ? "" : f.label.trim();
@@ -658,7 +668,7 @@ final class Playback extends FrameLayout {
             if (label.toLowerCase(Locale.ROOT).contains(first)) out = label;
             else if (!label.isEmpty() && !label.equalsIgnoreCase(out)) out += " · " + label;
         }
-        if ((f.selectionFlags & C.SELECTION_FLAG_FORCED) != 0) out += FlixView.es(" (forzados)", " (forced)");
+        if ((f.selectionFlags & C.SELECTION_FLAG_FORCED) != 0) out += Ui.t(" (forzados)", " (forced)", " (forçadas)");
         return out;
     }
 
@@ -701,7 +711,7 @@ final class Playback extends FrameLayout {
                 text.add(item(language(g.getTrackFormat(i)), "", on, () -> pickTrack(g, at, C.TRACK_TYPE_TEXT)));
             }
         }
-        text.add(item(FlixView.es("Desactivados", "Off"), "", !any, this::subtitlesOff));
+        text.add(item(Ui.t("Desactivados", "Off", "Desligadas"), "", !any, this::subtitlesOff));
         for (int i = 0; i < c.streams.size(); i++) {
             final int at = i;
             Streams.Stream s = c.streams.get(i);
@@ -710,11 +720,11 @@ final class Playback extends FrameLayout {
         hud.cols.clear();
         hud.colTitles.clear();
         hud.cols.add(audio);
-        hud.colTitles.add(FlixView.es("AUDIO", "AUDIO"));
+        hud.colTitles.add(Ui.t("AUDIO", "AUDIO", "ÁUDIO"));
         hud.cols.add(text);
-        hud.colTitles.add(FlixView.es("SUBTÍTULOS", "SUBTITLES"));
+        hud.colTitles.add(Ui.t("SUBTÍTULOS", "SUBTITLES", "LEGENDAS"));
         hud.cols.add(versions);
-        hud.colTitles.add(FlixView.es("VERSIÓN", "VERSION"));
+        hud.colTitles.add(Ui.t("VERSIÓN", "VERSION", "VERSÃO"));
         hud.col = Math.min(hud.col, hud.cols.size() - 1);
         hud.row = Math.max(0, Math.min(hud.row, hud.cols.get(hud.col).size() - 1));
         hud.invalidate();
@@ -800,8 +810,10 @@ final class Playback extends FrameLayout {
                     e.episode = o.optInt("episode", o.optInt("number"));
                     if (e.season <= 0 || e.id.isEmpty()) continue;   // specials
                     e.name = o.optString("name", o.optString("title", "")).trim();
-                    if (e.name.matches("(?i)(episode|episodio)\\s*\\d+")) e.name = FlixView.es("Episodio ", "Episode ") + e.episode;
-                    e.label = e.episode + ". " + (e.name.isEmpty() ? FlixView.es("Episodio ", "Episode ") + e.episode : e.name);
+                    if (e.name.matches("(?i)(episode|episodio)\\s*\\d+")) e.name = Ui.t("Episodio ",
+                            "Episode ", "Episódio ") + e.episode;
+                    e.label = e.episode + ". " + (e.name.isEmpty() ? Ui.t("Episodio ",
+                            "Episode ", "Episódio ") + e.episode : e.name);
                     e.thumb = o.optString("thumbnail", "");
                     list.add(e);
                 }
@@ -838,7 +850,7 @@ final class Playback extends FrameLayout {
         hud.eps = season;
         hud.currentId = current == null ? "" : current.id;
         hud.ep = Math.max(0, season.indexOf(current));
-        hud.seasonLabel = FlixView.es("Temporada ", "Season ") + s;
+        hud.seasonLabel = Ui.t("Temporada ", "Season ", "Temporada ") + s;
         for (PlayerHud.Ep e : season) loadImage(e);
         hud.mode = PlayerHud.EPISODES;
         hud.invalidate();
@@ -904,7 +916,7 @@ final class Playback extends FrameLayout {
         hud.mode = PlayerHud.NEXT;
         hud.next = e;
         hud.nextFocus = 0;
-        hud.nextTitle = FlixView.es("T", "S") + e.season + " · E" + e.episode + (e.name.isEmpty() ? "" : "  " + e.name);
+        hud.nextTitle = Ui.t("T", "S", "T") + e.season + " · E" + e.episode + (e.name.isEmpty() ? "" : "  " + e.name);
         hud.nextMeta = "";
         nextAt = SystemClock.uptimeMillis() + COUNTDOWN;
         loadImage(e);
@@ -917,9 +929,11 @@ final class Playback extends FrameLayout {
                 if (ask != switchAsk || nextEp != e) return;
                 nextChoice = ch;
                 nextChoiceFor = e;
-                hud.nextMeta = ch == null ? FlixView.es("No encontré versiones de este episodio", "No versions found")
-                        : ch.latino > 0 ? FlixView.es("Doblaje latino disponible", "Latin American dub available")
-                        : FlixView.es("Sin doblaje latino · original con subtítulos", "No Latin American dub · original with subtitles");
+                hud.nextMeta = ch == null ? Ui.t("No encontré versiones de este episodio",
+                        "No versions found", "Não achei versões deste episódio")
+                        : ch.latino > 0 ? Ui.t("Doblaje latino disponible", "Dub available", "Dublado disponível")
+                        : Ui.t("Sin doblaje latino · original con subtítulos",
+                                "No dub · original with subtitles", "Sem dublagem · original com legendas");
                 hud.invalidate();
             });
         }).start();
@@ -947,7 +961,7 @@ final class Playback extends FrameLayout {
     private void playEpisode(final PlayerHud.Ep e) {
         if (e == null || c == null) return;
         final String show = name, poster = posterUrl, id = c.id;
-        final String epTitle = show + "  ·  " + FlixView.es("T", "S") + e.season + " E" + e.episode;
+        final String epTitle = show + "  ·  " + Ui.t("T", "S", "T") + e.season + " E" + e.episode;
         final Streams.Choice ready = nextChoiceFor == e ? nextChoice : null;
         AppLog.w("player: on to " + e.id);
         release();   // saves where this one was (near the end: watched, and Stremio moves on to the next)
@@ -962,7 +976,8 @@ final class Playback extends FrameLayout {
         hud.loading = true;
         hud.loadingFrom = "";
         hud.loadingLines.clear();
-        hud.loadingLines.add(FlixView.es("Buscando versiones de este episodio", "Looking for this episode's versions"));
+        hud.loadingLines.add(Ui.t("Buscando versiones de este episodio",
+                "Looking for this episode's versions", "Buscando versões deste episódio"));
         hud.loadingNow = 0;
         hud.invalidate();
         if (ready != null) {

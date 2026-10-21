@@ -211,8 +211,8 @@ final class PlayerHud extends View {
     }
 
     static String label(int b) {
-        return b == B_AUDIO ? FlixView.es("Audio y subtítulos", "Audio & subtitles")
-                : b == B_EPISODES ? FlixView.es("Episodios", "Episodes") : FlixView.es("Siguiente", "Next");
+        return b == B_AUDIO ? Ui.t("Audio y subtítulos", "Audio & subtitles", "Áudio e legendas")
+                : b == B_EPISODES ? Ui.t("Episodios", "Episodes", "Episódios") : Ui.t("Siguiente", "Next", "Próximo");
     }
 
     // MARK: - Audio and subtitles
@@ -221,7 +221,8 @@ final class PlayerHud extends View {
         float top = x(500);
         fill.setColor(0xF2121418);
         c.drawRect(0, top, getWidth(), getHeight(), fill);
-        c.drawText(FlixView.es("Audio y subtítulos", "Audio & subtitles"), x(80), top + x(70), panelTitleP);
+        c.drawText(Ui.t("Audio y subtítulos",
+                "Audio & subtitles", "Áudio e legendas"), x(80), top + x(70), panelTitleP);
         float colW = x(560), gap = x(48), rowH = x(60), listTop = top + x(150);
         int visible = 6;
         for (int ci = 0; ci < cols.size(); ci++) {
@@ -277,7 +278,8 @@ final class PlayerHud extends View {
         c.drawText(seasonLabel, x(100), r.centerY() + Ui.halfCap(smallStrong), smallStrong);
         smallStrong.setColor(0xFFFFFFFF);
         if (eps.isEmpty()) {
-            c.drawText(FlixView.es("Cargando episodios…", "Loading episodes…"), x(80), x(840), smallP);
+            c.drawText(Ui.t("Cargando episodios…",
+                    "Loading episodes…", "Carregando episódios…"), x(80), x(840), smallP);
             return;
         }
         float cw = x(282), ch = x(159), gap = x(20), top = x(776);
@@ -310,7 +312,8 @@ final class PlayerHud extends View {
             }
             c.restore();
             c.drawText(ellipsize(e.label, epP, cw), l, top + ch + x(36), epP);
-            c.drawText(e.id.equals(currentId) ? FlixView.es("Viendo", "Watching") : "", l, top + ch + x(64), epMetaP);
+            c.drawText(e.id.equals(currentId) ? Ui.t("Viendo",
+                    "Watching", "Assistindo") : "", l, top + ch + x(64), epMetaP);
         }
     }
 
@@ -328,7 +331,7 @@ final class PlayerHud extends View {
         c.drawRect(x(1200), 0, getWidth(), getHeight(), fill);
         float l = x(1040);
         kickerP.setLetterSpacing(0.12f);
-        c.drawText(FlixView.es("SIGUIENTE EPISODIO", "NEXT EPISODE"), l, x(140), kickerP);
+        c.drawText(Ui.t("SIGUIENTE EPISODIO", "NEXT EPISODE", "PRÓXIMO EPISÓDIO"), l, x(140), kickerP);
         kickerP.setLetterSpacing(0.08f);
         r.set(l, x(170), l + x(800), x(620));
         c.save();
@@ -346,7 +349,8 @@ final class PlayerHud extends View {
         c.drawText(nextMeta, l, x(736), smallP);
         // Watch now (with the seconds left on a ring), See the credits.
         float cy = x(820);
-        String now = FlixView.es("Ver ahora", "Watch now"), credits = FlixView.es("Ver créditos", "See credits");
+        String now = Ui.t("Ver ahora", "Watch now", "Assistir agora"), credits = Ui.t("Ver créditos",
+                "See credits", "Ver créditos");
         float w1 = x(36) + x(40) + x(16) + buttonP.measureText(now) + x(36);
         r.set(l, cy - x(38), l + w1, cy + x(38));
         boolean f0 = nextFocus == 0;
@@ -399,7 +403,9 @@ final class PlayerHud extends View {
         float t = (android.os.SystemClock.uptimeMillis() % 1000) / 1000f;
         arc.set(sx - x(14), sy - x(14), sx + x(14), sy + x(14));
         c.drawArc(arc, t * 360, 270, false, stroke);
-        c.drawText(FlixView.es("Buscando la mejor versión en español", "Finding the best version"), sx + x(34), sy + Ui.halfCap(loadP), loadP);
+        c.drawText(Ui.t("Buscando la mejor versión en español",
+                "Finding the best version",
+                "Buscando a melhor versão em português"), sx + x(34), sy + Ui.halfCap(loadP), loadP);
         for (int i = 0; i < loadingLines.size(); i++) {
             float y = boxTop + x(100) + rowH * i;
             boolean now = i == loadingNow, done = i < loadingNow;

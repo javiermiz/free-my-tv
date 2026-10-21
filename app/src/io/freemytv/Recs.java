@@ -82,6 +82,7 @@ final class Recs {
     private static final int MANHA = 0, TARDE = 1, NOITE = 2;
     static final String[] PERIOD_LABEL = {"PARA ESTA MANHÃ", "PARA ESTA TARDE", "PARA ESTA NOITE"};
     static final String[] PERIOD_LABEL_EN = {"THIS MORNING", "THIS AFTERNOON", "TONIGHT"};
+    static final String[] PERIOD_LABEL_ES = {"PARA ESTA MAÑANA", "PARA ESTA TARDE", "PARA ESTA NOCHE"};
     /** Service name on TMDB (part of the name, lowercase) → TV app (HomeApps key, package). */
     private static final String[][] SERVICES = {
         {"netflix", "netflix", "com.netflix.ninja"},
@@ -211,7 +212,7 @@ final class Recs {
     String error() { return error; }
 
     static String periodLabel() {
-        return (Ui.en ? PERIOD_LABEL_EN : PERIOD_LABEL)[period(System.currentTimeMillis())];
+        return (Ui.en ? PERIOD_LABEL_EN : Ui.LANG.equals("es") ? PERIOD_LABEL_ES : PERIOD_LABEL)[period(System.currentTimeMillis())];
     }
 
     private static int period(long now) {
@@ -363,11 +364,10 @@ final class Recs {
             } catch (NumberFormatException ignored) {
             }
         }
-        boolean es = lang().startsWith("es");
-        if (series && episode > 0) parts.add((es ? "T" : Ui.tr("T", "S")) + season + " E" + episode);
+        if (series && episode > 0) parts.add(Ui.t("T", "S", "T") + season + " E" + episode);
         long left = (st.optLong("duration") - st.optLong("timeOffset")) / 60_000L;
         if (st.optLong("duration") > 0 && left > 0)
-            parts.add(es ? "faltan " + left + " min" : Ui.tr("faltam " + left + " min", left + " min left"));
+            parts.add(Ui.t("faltan " + left + " min", left + " min left", "faltam " + left + " min"));
         parts.add("Stremio");
         p.meta = String.join(" · ", parts);
         return p;
@@ -443,7 +443,7 @@ final class Recs {
         if (extra == 0 && !rows.isEmpty()) moreRows();   // the first extra rows come at once, not only when you get to the end
         if (!hasKey(context) || fetching) return;
         long now = System.currentTimeMillis();
-        long stamp = Config.TMDB_KEY.hashCode() * 31L + REGION.hashCode();   // a new key or country refetches
+        long stamp = (Config.TMDB_KEY.hashCode() * 31L + REGION.hashCode()) * 31L + Ui.LANG.hashCode();   // a new key, country or language refetches
         boolean newKey = stamp != keyStamp;
         long sinceFail = now - failedAt;    // negative = the clock went back: don't wait
         if (!newKey && failedAt != 0 && sinceFail >= 0 && sinceFail < 10 * 60_000L) return;
@@ -585,7 +585,8 @@ final class Recs {
             String[] s = service(o.optString("provider_name"));
             if (s != null && installed(s[2])) services.put(o.getInt("provider_id"), s);
         }
-        if (services.isEmpty()) throw new IOException("none of the TV's streaming services are on TMDB");
+        if (services.isEmpty()) throw new IOException(Ui.t("ninguna app de streaming de la TV está en TMDB", "none of the TV's streaming services are on TMDB",
+                "nenhum app de streaming da TV está no TMDB"));
         StringBuilder ids = new StringBuilder();
         for (int id : services.keySet()) ids.append(ids.length() == 0 ? "" : "|").append(id);
         JSONObject byApp = new JSONObject();   // each service's TMDB ids and app, for its own rows (rows(platform))
@@ -638,7 +639,7 @@ final class Recs {
         others = byTaste(others);   // after likeWhatYouWatch: it learns your taste
         List<Pick> list = new ArrayList<>();
         alternate(list, new java.util.HashSet<>(), mine, others, 60);
-        if (list.isEmpty()) throw new IOException("TMDB returned no recommendations");
+        if (list.isEmpty()) throw new IOException(Ui.t("TMDB no devolvió recomendaciones", "TMDB returned no recommendations", "o TMDB não devolveu sugestões"));
         List<Row> newRows = rows;
         try {
             newRows = fetchRows(services);
@@ -676,10 +677,9 @@ final class Recs {
 
     /** Language of titles and genres; the services come from the region. */
     private static String lang() {
-        String lang = Config.LANGUAGE.trim().toLowerCase(Locale.ROOT);
-        if (lang.startsWith("es") || lang.equals("auto") && "es".equals(Locale.getDefault().getLanguage()))
-            return "ES".equals(REGION) ? "es-ES" : "es-MX";     // the UI stays English; only TMDB's text is Spanish
-        return Ui.en ? "en-US" : "pt-BR";
+        if (Ui.LANG.equals("es")) return "ES".equals(REGION) ? "es-ES" : "es-MX";
+        if (Ui.LANG.equals("pt")) return "PT".equals(REGION) ? "pt-PT" : "pt-BR";
+        return "en-US";
     }
 
     private static void alternate(List<Pick> out, java.util.Set<String> seen, List<Pick> a, List<Pick> b, int max) {
@@ -817,24 +817,38 @@ final class Recs {
         } catch (Exception e) {
             AppLog.w("what's new: " + e.getMessage());
         }
-        listRow(out, seen, t("Tendencias de hoy", "Trending today"), 15, "all:/trending/all/day?language=" + lang());
+        listRow(out, seen, Ui.t("Tendencias de hoy",
+                "Trending today", "Em alta hoje"), 15, "all:/trending/all/day?language=" + lang());
         String ko = KO, ja = JA;
-        category(out, seen, t("K-dramas de romance", "Romance K-dramas"), ko + "&with_keywords=9840");
-        category(out, seen, t("K-dramas de comedia romántica", "Romantic comedy K-dramas"), ko + "&with_genres=35&with_keywords=9840");
-        category(out, seen, t("K-dramas de suspenso y crimen", "Thriller and crime K-dramas"), ko + "&with_genres=80|9648");
-        category(out, seen, t("K-dramas de fantasía", "Fantasy K-dramas"), ko + "&with_genres=10765");
-        category(out, seen, t("Anime de acción", "Action anime"), ja.replace("with_genres=16", "with_genres=16,10759"));
-        category(out, seen, t("Anime isekai", "Isekai anime"), ja + "&with_keywords=237451");
-        category(out, seen, t("Anime de romance", "Romance anime"), ja + "&with_keywords=9840");
-        category(out, seen, t("Anime de la vida cotidiana", "Slice of life anime"), ja + "&with_keywords=9914");
+        category(out, seen, Ui.t("K-dramas de romance",
+                "Romance K-dramas", "K-dramas de romance"), ko + "&with_keywords=9840");
+        category(out, seen, Ui.t("K-dramas de comedia romántica",
+                "Romantic comedy K-dramas",
+                "K-dramas de comédia romântica"), ko + "&with_genres=35&with_keywords=9840");
+        category(out, seen, Ui.t("K-dramas de suspenso y crimen",
+                "Thriller and crime K-dramas", "K-dramas de suspense e crime"), ko + "&with_genres=80|9648");
+        category(out, seen, Ui.t("K-dramas de fantasía",
+                "Fantasy K-dramas", "K-dramas de fantasia"), ko + "&with_genres=10765");
+        category(out, seen, Ui.t("Anime de acción",
+                "Action anime", "Anime de ação"), ja.replace("with_genres=16", "with_genres=16,10759"));
+        category(out, seen, Ui.t("Anime isekai", "Isekai anime", "Anime isekai"), ja + "&with_keywords=237451");
+        category(out, seen, Ui.t("Anime de romance", "Romance anime", "Anime de romance"), ja + "&with_keywords=9840");
+        category(out, seen, Ui.t("Anime de la vida cotidiana",
+                "Slice of life anime", "Anime slice of life"), ja + "&with_keywords=9914");
         // Well loved but not famous: to find something new.
         String gem = "&vote_average.gte=7.4&sort_by=vote_average.desc&without_genres=10762,10764,10767,99";
-        listRow(out, seen, t("Joyas escondidas", "Hidden gems"), ROW_MAX, discoverPath("movie", gem + "&vote_count.gte=300&vote_count.lte=4000"),
+        listRow(out, seen, Ui.t("Joyas escondidas",
+                "Hidden gems",
+                "Joias escondidas"), ROW_MAX, discoverPath("movie", gem + "&vote_count.gte=300&vote_count.lte=4000"),
                 discoverPath("tv", gem + "&vote_count.gte=150&vote_count.lte=2500"));
         String great = "&vote_average.gte=8&without_genres=10762,10764,10767,99";
-        listRow(out, seen, t("Aclamadas por la crítica", "Critically acclaimed"), 15, discoverPath("movie", great + "&vote_count.gte=2000"),
+        listRow(out, seen, Ui.t("Aclamadas por la crítica",
+                "Critically acclaimed",
+                "Aclamados pela crítica"), 15, discoverPath("movie", great + "&vote_count.gte=2000"),
                 discoverPath("tv", great + "&vote_count.gte=800"));
-        listRow(out, seen, t("Algo corto", "Something short"), 15, discoverPath("movie", "&with_runtime.lte=95&with_runtime.gte=60&vote_count.gte=500"),
+        listRow(out, seen, Ui.t("Algo corto",
+                "Something short",
+                "Algo curto"), 15, discoverPath("movie", "&with_runtime.lte=95&with_runtime.gte=60&vote_count.gte=500"),
                 discoverPath("tv", "&with_runtime.lte=30&vote_count.gte=200&without_genres=10762,10764,10767"));
         sagas(out);
         // Each big service: what came out this past year and people watch most (not decades-old shows on repeat).
@@ -853,7 +867,8 @@ final class Recs {
                     discoverPath("movie", with + "&primary_release_date.gte=" + day(-365))};
             List<Pick> mixed = new ArrayList<>();
             alternate(mixed, seen, pages(more[0], 1, 2), pages(more[1], 1, 2), ROW_MAX);
-            Row r = row(out, t("Lo nuevo en ", "New on ") + SERVICE_NAME.get(app), onService(mixed, app, pkg));
+            Row r = row(out, Ui.t("Lo nuevo en ",
+                    "New on ", "Novo em ") + SERVICE_NAME.get(app), onService(mixed, app, pkg));
             if (r != null) {
                 r.more = more;
                 r.page = 2;
@@ -874,11 +889,10 @@ final class Recs {
         try {
             java.time.LocalDate d = java.time.LocalDate.parse(date), today = java.time.LocalDate.now();
             long days = java.time.temporal.ChronoUnit.DAYS.between(d, today);
-            boolean es = lang().startsWith("es");
-            if (days <= 0) return es ? "hoy" : "today";
-            if (days == 1) return es ? "ayer" : "yesterday";
-            if (days < 7) return es ? "hace " + days + " días" : days + " days ago";
-            return d.format(java.time.format.DateTimeFormatter.ofPattern("d MMM", es ? new Locale("es") : Locale.US)).replace(".", "");
+            if (days <= 0) return Ui.t("hoy", "today", "hoje");
+            if (days == 1) return Ui.t("ayer", "yesterday", "ontem");
+            if (days < 7) return Ui.t("hace " + days + " días", days + " days ago", "há " + days + " dias");
+            return d.format(java.time.format.DateTimeFormatter.ofPattern("d MMM", Ui.LOCALE)).replace(".", "");
         } catch (Exception e) {
             return date;
         }
@@ -915,12 +929,15 @@ final class Recs {
                 continue;
             }
             if (p.pkg == null) continue;
-            p.meta = t("Nuevo episodio ", "New episode ") + t("T", "S") + last.optInt("season_number") + " E" + last.optInt("episode_number")
+            p.meta = Ui.t("Nuevo episodio ",
+                    "New episode ",
+                    "Novo episódio ") + Ui.t("T", "S", "T") + last.optInt("season_number") + " E" + last.optInt("episode_number")
                     + " · " + when(date) + (p.meta.isEmpty() ? "" : " · " + p.meta);
             fresh.add(p);
         }
         java.util.Collections.sort(fresh, (a, b) -> b.released.compareTo(a.released));
-        Row r = row(out, t("Nuevos episodios de tus series", "New episodes of your shows"), fresh);
+        Row r = row(out, Ui.t("Nuevos episodios de tus series",
+                "New episodes of your shows", "Novos episódios das suas séries"), fresh);
         if (r != null) r.top = true;
         AppLog.w("new episodes: " + fresh.size() + " of " + ids.size() + " shows");
     }
@@ -943,9 +960,10 @@ final class Recs {
         List<Pick> picks = detailed(liked, 30);
         for (Pick p : picks) {
             seen.add(key(p));
-            p.meta = t("Estreno", "New") + " · " + when(p.released) + (p.meta.isEmpty() ? "" : " · " + p.meta);
+            p.meta = Ui.t("Estreno",
+                    "New", "Estreia") + " · " + when(p.released) + (p.meta.isEmpty() ? "" : " · " + p.meta);
         }
-        Row r = row(out, t("Novedades", "What's new"), picks);
+        Row r = row(out, Ui.t("Novedades", "What's new", "Novidades"), picks);
         if (r != null) {
             r.top = true;
             r.more = more;
@@ -955,13 +973,13 @@ final class Recs {
 
     /** Sagas: TMDB collections (and the Marvel films by their keyword), each a row in release order. */
     private static final String[][] SAGAS = {
-        {"Universo Cinematográfico de Marvel", "Marvel Cinematic Universe", "keyword", "180547"},
-        {"Star Wars", "Star Wars", "collection", "10"},
-        {"Harry Potter", "Harry Potter", "collection", "1241"},
-        {"El Señor de los Anillos y El Hobbit", "The Lord of the Rings and The Hobbit", "collection", "119,121938"},
-        {"Rápido y Furioso", "Fast & Furious", "collection", "9485"},
-        {"John Wick", "John Wick", "collection", "404609"},
-        {"Jurassic Park", "Jurassic Park", "collection", "328"},
+        {"Universo Cinematográfico de Marvel", "Marvel Cinematic Universe", "keyword", "180547", "Universo Cinematográfico Marvel"},
+        {"Star Wars", "Star Wars", "collection", "10", "Star Wars"},
+        {"Harry Potter", "Harry Potter", "collection", "1241", "Harry Potter"},
+        {"El Señor de los Anillos y El Hobbit", "The Lord of the Rings and The Hobbit", "collection", "119,121938", "O Senhor dos Anéis e O Hobbit"},
+        {"Rápido y Furioso", "Fast & Furious", "collection", "9485", "Velozes e Furiosos"},
+        {"John Wick", "John Wick", "collection", "404609", "John Wick"},
+        {"Jurassic Park", "Jurassic Park", "collection", "328", "Jurassic Park"},
     };
 
     private void sagas(List<Row> out) {
@@ -984,7 +1002,7 @@ final class Recs {
                     for (JSONObject o : parts) add(films, o, "movie");
                 }
                 List<Pick> found = detailed(films);
-                Row r = row(out, t(s[0], s[1]), found);
+                Row r = row(out, Ui.t(s[0], s[1], s[4]), found);
                 if (r != null) r.saga = true;
                 AppLog.w("saga " + s[1] + ": " + films.size() + " films, " + found.size() + " you can open");
             } catch (Exception e) {
@@ -1222,30 +1240,30 @@ final class Recs {
 
     /** Genres: {Spanish, English (lowercase), movie ids, show ids ("" = none for shows)}. */
     private static final String[][] GENRES = {
-        {"Comedia", "comedy", "35", "35"}, {"Drama", "drama", "18", "18"}, {"Acción", "action", "28", "10759"},
-        {"Suspenso", "thrillers", "53", "9648"}, {"Crimen", "crime", "80", "80"}, {"Ciencia ficción", "sci-fi", "878", "10765"},
-        {"Terror", "horror", "27", ""}, {"Romance", "romance", "10749", ""}, {"Misterio", "mystery", "9648", "9648"},
-        {"Animación", "animation", "16", "16"}, {"Aventura", "adventure", "12", "10759"}, {"Fantasía", "fantasy", "14", "10765"},
-        {"Documentales", "documentaries", "99", "99"}, {"Historia", "history", "36", ""}, {"Bélicas", "war", "10752", "10768"},
-        {"Familia", "family", "10751", "10751"},
+        {"Comedia", "comedy", "35", "35", "Comédia"}, {"Drama", "drama", "18", "18", "Drama"}, {"Acción", "action", "28", "10759", "Ação"},
+        {"Suspenso", "thrillers", "53", "9648", "Suspense"}, {"Crimen", "crime", "80", "80", "Crime"}, {"Ciencia ficción", "sci-fi", "878", "10765", "Ficção científica"},
+        {"Terror", "horror", "27", "", "Terror"}, {"Romance", "romance", "10749", "", "Romance"}, {"Misterio", "mystery", "9648", "9648", "Mistério"},
+        {"Animación", "animation", "16", "16", "Animação"}, {"Aventura", "adventure", "12", "10759", "Aventura"}, {"Fantasía", "fantasy", "14", "10765", "Fantasia"},
+        {"Documentales", "documentaries", "99", "99", "Documentários"}, {"Historia", "history", "36", "", "História"}, {"Bélicas", "war", "10752", "10768", "Guerra"},
+        {"Familia", "family", "10751", "10751", "Família"},
     };
     /** What a genre is combined with: {Spanish "%s …", English "… %s", movie filters, show filters}. */
     private static final String[][] TWISTS = {
-        {"%s de los 80", "80s %s", "&primary_release_date.gte=1980-01-01&primary_release_date.lte=1989-12-31", "&first_air_date.gte=1980-01-01&first_air_date.lte=1989-12-31"},
-        {"%s de los 90", "90s %s", "&primary_release_date.gte=1990-01-01&primary_release_date.lte=1999-12-31", "&first_air_date.gte=1990-01-01&first_air_date.lte=1999-12-31"},
-        {"%s de los 2000", "2000s %s", "&primary_release_date.gte=2000-01-01&primary_release_date.lte=2009-12-31", "&first_air_date.gte=2000-01-01&first_air_date.lte=2009-12-31"},
-        {"%s de los 2010", "2010s %s", "&primary_release_date.gte=2010-01-01&primary_release_date.lte=2019-12-31", "&first_air_date.gte=2010-01-01&first_air_date.lte=2019-12-31"},
-        {"%s: lo más aclamado", "acclaimed %s", "&vote_average.gte=7.8&vote_count.gte=500", "&vote_average.gte=7.8&vote_count.gte=200"},
-        {"%s de Corea", "Korean %s", "&with_origin_country=KR", "&with_origin_country=KR"},
-        {"%s de Japón", "Japanese %s", "&with_origin_country=JP", "&with_origin_country=JP"},
-        {"%s de España", "Spanish %s", "&with_origin_country=ES", "&with_origin_country=ES"},
-        {"%s de México", "Mexican %s", "&with_origin_country=MX", "&with_origin_country=MX"},
-        {"%s de Argentina", "Argentine %s", "&with_origin_country=AR", "&with_origin_country=AR"},
-        {"%s de Colombia", "Colombian %s", "&with_origin_country=CO", "&with_origin_country=CO"},
-        {"%s del Reino Unido", "British %s", "&with_origin_country=GB", "&with_origin_country=GB"},
-        {"%s de Francia", "French %s", "&with_origin_country=FR", "&with_origin_country=FR"},
-        {"%s de la India", "Indian %s", "&with_origin_country=IN", "&with_origin_country=IN"},
-        {"%s de Turquía", "Turkish %s", "&with_origin_country=TR", "&with_origin_country=TR"},
+        {"%s de los 80", "80s %s", "&primary_release_date.gte=1980-01-01&primary_release_date.lte=1989-12-31", "&first_air_date.gte=1980-01-01&first_air_date.lte=1989-12-31", "%s dos anos 80"},
+        {"%s de los 90", "90s %s", "&primary_release_date.gte=1990-01-01&primary_release_date.lte=1999-12-31", "&first_air_date.gte=1990-01-01&first_air_date.lte=1999-12-31", "%s dos anos 90"},
+        {"%s de los 2000", "2000s %s", "&primary_release_date.gte=2000-01-01&primary_release_date.lte=2009-12-31", "&first_air_date.gte=2000-01-01&first_air_date.lte=2009-12-31", "%s dos anos 2000"},
+        {"%s de los 2010", "2010s %s", "&primary_release_date.gte=2010-01-01&primary_release_date.lte=2019-12-31", "&first_air_date.gte=2010-01-01&first_air_date.lte=2019-12-31", "%s dos anos 2010"},
+        {"%s: lo más aclamado", "acclaimed %s", "&vote_average.gte=7.8&vote_count.gte=500", "&vote_average.gte=7.8&vote_count.gte=200", "%s: os mais aclamados"},
+        {"%s de Corea", "Korean %s", "&with_origin_country=KR", "&with_origin_country=KR", "%s da Coreia"},
+        {"%s de Japón", "Japanese %s", "&with_origin_country=JP", "&with_origin_country=JP", "%s do Japão"},
+        {"%s de España", "Spanish %s", "&with_origin_country=ES", "&with_origin_country=ES", "%s da Espanha"},
+        {"%s de México", "Mexican %s", "&with_origin_country=MX", "&with_origin_country=MX", "%s do México"},
+        {"%s de Argentina", "Argentine %s", "&with_origin_country=AR", "&with_origin_country=AR", "%s da Argentina"},
+        {"%s de Colombia", "Colombian %s", "&with_origin_country=CO", "&with_origin_country=CO", "%s da Colômbia"},
+        {"%s del Reino Unido", "British %s", "&with_origin_country=GB", "&with_origin_country=GB", "%s do Reino Unido"},
+        {"%s de Francia", "French %s", "&with_origin_country=FR", "&with_origin_country=FR", "%s da França"},
+        {"%s de la India", "Indian %s", "&with_origin_country=IN", "&with_origin_country=IN", "%s da Índia"},
+        {"%s de Turquía", "Turkish %s", "&with_origin_country=TR", "&with_origin_country=TR", "%s da Turquia"},
     };
 
     /**
@@ -1263,25 +1281,40 @@ final class Recs {
         } else {
             // A platform: what it has that's new, popular and acclaimed, then K-dramas and anime on it.
             String year = day(-365);
-            out.add(new String[] {t("Lo nuevo en ", "New on ") + service, discoverPath("tv", on + "&vote_count.gte=10&first_air_date.gte=" + year),
+            out.add(new String[] {Ui.t("Lo nuevo en ",
+                    "New on ",
+                    "Novo em ") + service, discoverPath("tv", on + "&vote_count.gte=10&first_air_date.gte=" + year),
                     discoverPath("movie", on + "&vote_count.gte=10&primary_release_date.gte=" + year)});
-            out.add(new String[] {t("Popular en ", "Popular on ") + service, discoverPath("tv", on + "&vote_count.gte=50"),
+            out.add(new String[] {Ui.t("Popular en ",
+                    "Popular on ", "Popular em ") + service, discoverPath("tv", on + "&vote_count.gte=50"),
                     discoverPath("movie", on + "&vote_count.gte=100")});
-            out.add(new String[] {t("Aclamadas en ", "Acclaimed on ") + service, discoverPath("tv", on + "&vote_average.gte=7.8&vote_count.gte=150"),
+            out.add(new String[] {Ui.t("Aclamadas en ",
+                    "Acclaimed on ",
+                    "Aclamados em ") + service, discoverPath("tv", on + "&vote_average.gte=7.8&vote_count.gte=150"),
                     discoverPath("movie", on + "&vote_average.gte=7.5&vote_count.gte=500")});
-            out.add(new String[] {t("K-dramas de romance", "Romance K-dramas"), discoverPath("tv", on + KO.replace("vote_count.gte=30", "vote_count.gte=5") + "&with_keywords=9840")});
-            out.add(new String[] {t("K-dramas", "K-dramas"), discoverPath("tv", on + KO.replace("vote_count.gte=30", "vote_count.gte=5"))});
-            out.add(new String[] {t("Anime", "Anime"), discoverPath("tv", on + JA.replace("vote_count.gte=30", "vote_count.gte=5"))});
-            out.add(new String[] {t("Películas de anime", "Anime movies"), discoverPath("movie", on + "&with_original_language=ja&with_genres=16&vote_count.gte=20")});
-            out.add(new String[] {t("Joyas escondidas", "Hidden gems"), discoverPath("tv", on + "&vote_average.gte=7.4&vote_count.gte=60&vote_count.lte=1500&sort_by=vote_average.desc"),
+            out.add(new String[] {Ui.t("K-dramas de romance",
+                    "Romance K-dramas",
+                    "K-dramas de romance"), discoverPath("tv", on + KO.replace("vote_count.gte=30", "vote_count.gte=5") + "&with_keywords=9840")});
+            out.add(new String[] {Ui.t("K-dramas",
+                    "K-dramas",
+                    "K-dramas"), discoverPath("tv", on + KO.replace("vote_count.gte=30", "vote_count.gte=5"))});
+            out.add(new String[] {Ui.t("Anime",
+                    "Anime", "Anime"), discoverPath("tv", on + JA.replace("vote_count.gte=30", "vote_count.gte=5"))});
+            out.add(new String[] {Ui.t("Películas de anime",
+                    "Anime movies",
+                    "Filmes de anime"), discoverPath("movie", on + "&with_original_language=ja&with_genres=16&vote_count.gte=20")});
+            out.add(new String[] {Ui.t("Joyas escondidas",
+                    "Hidden gems",
+                    "Joias escondidas"), discoverPath("tv", on + "&vote_average.gte=7.4&vote_count.gte=60&vote_count.lte=1500&sort_by=vote_average.desc"),
                     discoverPath("movie", on + "&vote_average.gte=7.2&vote_count.gte=150&vote_count.lte=3000&sort_by=vote_average.desc")});
         }
         String movie = "&vote_count.gte=80" + on, tv = "&vote_count.gte=40&without_genres=10762,10763,10764,10767" + on;
         List<String[]> plain = new ArrayList<>(), twisted = new ArrayList<>();
         for (String[] g : GENRES) {
-            plain.add(recipe(cap(t(g[0], g[1])), g, movie, tv));
+            plain.add(recipe(cap(Ui.t(g[0], g[1], g[4])), g, movie, tv));
             for (String[] tw : TWISTS) {
-                twisted.add(recipe(cap(t(String.format(tw[0], g[0]), String.format(tw[1], g[1]))), g, movie + tw[2], tv + tw[3]));
+                twisted.add(recipe(cap(Ui.t(String.format(tw[0], g[0]),
+                        String.format(tw[1], g[1]), String.format(tw[4], g[4]))), g, movie + tw[2], tv + tw[3]));
             }
         }
         java.util.Random random = new java.util.Random(System.currentTimeMillis() / 86_400_000L);
@@ -1303,31 +1336,43 @@ final class Recs {
     private static List<String[]> animeRecipes() {
         List<String[]> out = new ArrayList<>();
         String year = day(-365);
-        out.add(new String[] {t("Anime popular", "Popular anime"), anime("", "&vote_count.gte=100")});
-        out.add(new String[] {t("Anime nuevo", "New anime"), anime("", "&vote_count.gte=5&first_air_date.gte=" + year)});
-        out.add(new String[] {t("Películas de anime", "Anime movies"), discoverPath("movie", "&with_original_language=ja&with_genres=16&vote_count.gte=50")});
-        out.add(new String[] {t("Anime de acción", "Action anime"), anime(",10759", "")});
-        out.add(new String[] {t("Anime isekai", "Isekai anime"), anime("", "&with_keywords=237451")});
-        out.add(new String[] {t("Anime de romance", "Romance anime"), anime("", "&with_keywords=9840")});
-        out.add(new String[] {t("Anime aclamado", "Acclaimed anime"), anime("", "&vote_average.gte=8&vote_count.gte=150"),
+        out.add(new String[] {Ui.t("Anime popular",
+                "Popular anime", "Anime popular"), anime("", "&vote_count.gte=100")});
+        out.add(new String[] {Ui.t("Anime nuevo",
+                "New anime", "Anime novo"), anime("", "&vote_count.gte=5&first_air_date.gte=" + year)});
+        out.add(new String[] {Ui.t("Películas de anime",
+                "Anime movies",
+                "Filmes de anime"), discoverPath("movie", "&with_original_language=ja&with_genres=16&vote_count.gte=50")});
+        out.add(new String[] {Ui.t("Anime de acción", "Action anime", "Anime de ação"), anime(",10759", "")});
+        out.add(new String[] {Ui.t("Anime isekai",
+                "Isekai anime", "Anime isekai"), anime("", "&with_keywords=237451")});
+        out.add(new String[] {Ui.t("Anime de romance",
+                "Romance anime", "Anime de romance"), anime("", "&with_keywords=9840")});
+        out.add(new String[] {Ui.t("Anime aclamado",
+                "Acclaimed anime", "Anime aclamado"), anime("", "&vote_average.gte=8&vote_count.gte=150"),
                 discoverPath("movie", "&with_original_language=ja&with_genres=16&vote_average.gte=7.8&vote_count.gte=300")});
-        out.add(new String[] {t("Comedia anime", "Comedy anime"), anime(",35", "")});
-        out.add(new String[] {t("Anime de la vida cotidiana", "Slice of life anime"), anime("", "&with_keywords=9914")});
-        out.add(new String[] {t("Anime de fantasía y ciencia ficción", "Fantasy and sci-fi anime"), anime(",10765", "")});
-        out.add(new String[] {t("Anime de misterio", "Mystery anime"), anime(",9648", "")});
-        out.add(new String[] {t("Drama anime", "Drama anime"), anime(",18", "")});
-        out.add(new String[] {t("Studio Ghibli", "Studio Ghibli"), discoverPath("movie", "&with_companies=10342&sort_by=primary_release_date.desc")});
+        out.add(new String[] {Ui.t("Comedia anime", "Comedy anime", "Comédia anime"), anime(",35", "")});
+        out.add(new String[] {Ui.t("Anime de la vida cotidiana",
+                "Slice of life anime", "Anime slice of life"), anime("", "&with_keywords=9914")});
+        out.add(new String[] {Ui.t("Anime de fantasía y ciencia ficción",
+                "Fantasy and sci-fi anime", "Anime de fantasia e ficção científica"), anime(",10765", "")});
+        out.add(new String[] {Ui.t("Anime de misterio", "Mystery anime", "Anime de mistério"), anime(",9648", "")});
+        out.add(new String[] {Ui.t("Drama anime", "Drama anime", "Drama anime"), anime(",18", "")});
+        out.add(new String[] {Ui.t("Studio Ghibli",
+                "Studio Ghibli",
+                "Studio Ghibli"), discoverPath("movie", "&with_companies=10342&sort_by=primary_release_date.desc")});
         String[][] decades = {{"90", "1990"}, {"2000", "2000"}, {"2010", "2010"}, {"2020", "2020"}};
         for (String[] d : decades) {
             int from = Integer.parseInt(d[1]);
-            out.add(new String[] {t("Anime de los " + d[0], d[0] + "s anime"),
+            out.add(new String[] {Ui.t("Anime de los " + d[0], d[0] + "s anime", "Anime dos anos " + d[0]),
                     anime("", "&first_air_date.gte=" + from + "-01-01&first_air_date.lte=" + (from + 9) + "-12-31&vote_count.gte=40")});
         }
-        String[][] kinds = {{",10759", "Acción", "action"}, {",35", "Comedia", "comedy"}, {",18", "Drama", "drama"}, {",10765", "Fantasía", "fantasy"}};
+        String[][] kinds = {{",10759", "Acción", "action", "de ação"}, {",35", "Comedia", "comedy", "de comédia"}, {",18", "Drama", "drama", "de drama"}, {",10765", "Fantasía", "fantasy", "de fantasia"}};
         for (String[] k : kinds) {
             for (String[] d : decades) {
                 int from = Integer.parseInt(d[1]);
-                out.add(new String[] {t(k[1] + " anime de los " + d[0], d[0] + "s " + k[2] + " anime"),
+                out.add(new String[] {Ui.t(k[1] + " anime de los " + d[0],
+                        d[0] + "s " + k[2] + " anime", "Anime " + k[3] + " dos anos " + d[0]),
                         anime(k[0], "&first_air_date.gte=" + from + "-01-01&first_air_date.lte=" + (from + 9) + "-12-31&vote_count.gte=20")});
             }
         }
@@ -1353,11 +1398,6 @@ final class Recs {
 
     private static String cap(String s) {
         return s.isEmpty() ? s : Character.toUpperCase(s.charAt(0)) + s.substring(1);
-    }
-
-    /** Spanish when TMDB's language is Spanish, else English (row titles). */
-    private static String t(String spanish, String english) {
-        return lang().startsWith("es") ? spanish : english;
     }
 
     /**
@@ -1795,10 +1835,10 @@ final class Recs {
                 if (found.isEmpty() && !Config.YOUTUBE_KEY.trim().isEmpty()) {
                     // YouTube down or out of searches for today: the fallbacks below, kept only until tomorrow's search.
                     try {
-                        found = youtubeTrailer(p, mine, p.title + (es(mine) ? " tráiler oficial español latino" : " official trailer"), enTitle, original);
+                        found = youtubeTrailer(p, mine, p.title + (es(mine) ? " tráiler oficial español latino" : pt(mine) ? " trailer oficial dublado" : " official trailer"), enTitle, original);
                         // Its English title, subtitled: Korean and Japanese shows (an English one's must be dubbed).
-                        if (found.isEmpty() && es(mine) && !original.equals("en"))
-                            found = youtubeTrailer(p, mine, enTitle + " trailer sub español", enTitle, original);
+                        if (found.isEmpty() && (es(mine) || pt(mine)) && !original.equals("en"))
+                            found = youtubeTrailer(p, mine, enTitle + (es(mine) ? " trailer sub español" : " trailer legendado"), enTitle, original);
                         searched = true;
                     } catch (IOException e) {
                         AppLog.w("trailer: " + e.getMessage());
@@ -1890,8 +1930,12 @@ final class Recs {
         return lang.equals("es");
     }
 
+    private static boolean pt(String lang) {
+        return lang.equals("pt");
+    }
+
     private String youtubeTrailer(Pick p, String mine, String q, String enTitle, String original) throws Exception {
-        boolean es = es(mine);
+        boolean es = es(mine), pt = pt(mine);
         String url = "https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&maxResults=8&videoEmbeddable=true"
                 + "&relevanceLanguage=" + mine + "&regionCode=" + REGION + "&q=" + URLEncoder.encode(q, "UTF-8")
                 + "&key=" + URLEncoder.encode(Config.YOUTUBE_KEY.trim(), "UTF-8");
@@ -1919,15 +1963,18 @@ final class Recs {
             // Fan-made "season 2" trailers, fan dubs, reviews and reactions aren't the trailer.
             if (t.matches(".*\\b(reaccion|reaction|review|resena|explicad[oa]|fan|fandub|concept|parodia|edit)\\b.*")) continue;
             // Dubbed beats subtitled; subtitled is fine when the audio is Korean, Japanese... never English.
-            boolean subs = t.matches(".*\\b(subtitulad[oa]|sub esp[a-z]*|subs?|subtitulos)\\b.*");
-            boolean dubbed = !subs && t.matches(".*\\b(latino|espanol|doblad[oa]|castellano)\\b.*");
-            boolean spanish = dubbed || subs || raw.toLowerCase(Locale.ROOT).contains("tráiler") || t.matches(".*\\boficial\\b.*");
-            if (es && !spanish) continue;
+            boolean subs = pt ? t.matches(".*\\b(legendad[oa]|leg)\\b.*") : t.matches(".*\\b(subtitulad[oa]|sub esp[a-z]*|subs?|subtitulos)\\b.*");
+            boolean dubbed = !subs && (pt ? t.matches(".*\\b(dublad[oa]|dub|portugues|pt br)\\b.*")
+                    : t.matches(".*\\b(latino|espanol|doblad[oa]|castellano)\\b.*"));
+            boolean inYours = dubbed || subs || t.matches(".*\\boficial\\b.*") || (es && raw.toLowerCase(Locale.ROOT).contains("tráiler"));
+            if ((es || pt) && !inYours) continue;
             if (subs && original.equals("en")) continue;
             // Latin American Spanish, not Spain's: Spain's channels and "castellano" are out, Latin American ones first.
             boolean spain = (t + " " + channel).matches(".*\\b(castellano|espana)\\b.*");
             if (es && spain && !spainOk()) continue;
-            boolean latam = (t + " " + channel).matches(".*\\b(latino|latinoamerica|latam|mexico|hispanoamerica)\\b.*");
+            // Brazil's Portuguese, not Portugal's, unless the country is Portugal.
+            if (pt && !"PT".equals(REGION) && (t + " " + channel).matches(".*\\bportugal\\b.*")) continue;
+            boolean latam = (t + " " + channel).matches(es ? ".*\\b(latino|latinoamerica|latam|mexico|hispanoamerica)\\b.*" : ".*\\b(brasil|br)\\b.*");
             int score = (dubbed ? 4 : 0) + (latam ? 3 : 0) + (t.matches(".*\\b(oficial|official)\\b.*") ? 1 : 0) + (subs ? 1 : 0);
             if (score > bestScore) {
                 bestScore = score;
@@ -1993,7 +2040,8 @@ final class Recs {
             JSONObject f = found.getJSONObject(0);
             count(tasted, f);
             spoken.merge(f.optString("original_language"), 1, Integer::sum);
-            later.add(new String[] {t("Porque viste ", "Because you watched ") + f.optString(kind.equals("tv") ? "name" : "title"),
+            later.add(new String[] {Ui.t("Porque viste ",
+                    "Because you watched ", "Porque você viu ") + f.optString(kind.equals("tv") ? "name" : "title"),
                     kind + ":/" + kind + "/" + f.optInt("id") + "/recommendations?language=" + lang()});
         }
         becauseMore = later;
@@ -2027,7 +2075,7 @@ final class Recs {
             // Its own row; a few of them in "For you" too.
             if (ownRow) {
                 String name = found.getJSONObject(0).optString(kind.equals("tv") ? "name" : "title", it.optString("name"));
-                row(because, t("Porque viste ", "Because you watched ") + name, row);
+                row(because, Ui.t("Porque viste ", "Because you watched ", "Porque você viu ") + name, row);
                 out.addAll(row.subList(0, Math.min(4, row.size())));
             }
         }
@@ -2053,8 +2101,8 @@ final class Recs {
         List<String> parts = new ArrayList<>();
         JSONArray genres = o.optJSONArray("genres");
         // Written in TMDB's language (Spanish, Portuguese or English).
-        boolean es = lang().startsWith("es"), en = !es && Ui.en;
-        if (p.kind.equals("tv")) parts.add(es ? "Serie" : Ui.tr("Série", "Series"));
+        boolean es = Ui.LANG.equals("es"), en = Ui.en;
+        if (p.kind.equals("tv")) parts.add(Ui.t("Serie", "Series", "Série"));
         if (genres != null && genres.length() > 0) {
             String name = genres.getJSONObject(0).optString("name");
             parts.add(en ? name : genre(name, es ? GENRES_ES : GENRES_PT));

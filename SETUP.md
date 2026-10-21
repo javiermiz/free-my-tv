@@ -155,15 +155,15 @@ If you don't have an account yet, create one for free at [stremio.com](https://w
    *Not found*, reload the page while signed in and try again.
 
 **For the player** you also need add-ons on your Stremio account that give **direct links** (HTTP). The player uses the
-add-ons already installed on your account and picks the best stream: Latin American Spanish audio, then the original
-with Spanish subtitles, then Spain's Spanish, then anything else. Torrents don't play here (they need Stremio's engine):
+add-ons already installed on your account and picks the best stream for your `language`: dubbed in it (Latin American Spanish or
+Brazilian Portuguese first, then Spain's or Portugal's), else the original with subtitles in it, then anything else. In
+English it keeps the original audio. Torrents don't play here (they need Stremio's engine):
 if a title only has torrents, the home screen opens it in the Stremio app. Only use add-ons and sources you have the
 right to watch.
 
 ### YouTube (`youtube_key`): optional, free
 
-It's used to search YouTube for the trailer in Latin American Spanish (or with Spanish subtitles) when TMDB doesn't have
-it.
+It's used to search YouTube for the trailer in your language (dubbed, or subtitled in it) when TMDB doesn't have it.
 
 1. Go to [console.cloud.google.com](https://console.cloud.google.com) with your Google account. If it's your first time,
    accept the terms (no card needed).
@@ -190,7 +190,7 @@ editor (on a Mac: `open -e config.properties`) and fill in:
 | `tmdb_region` | Your country in two letters (decides which title is on which service) | `US`, `MX`, `CO`, `AR`, `ES`, `GB` |
 | `latitude`, `longitude` | Your city's coordinates, in decimal degrees | Mexico City: `19.4326`, `-99.1332` |
 | `city` | The name shown next to the weather | `CDMX` |
-| `language` | `es` for titles, trailers and home screen in Spanish; `en` for English | `es` |
+| `language` | The app's language, and TMDB's, trailers', dubs' and subtitles': `es`, `en` or `pt` (Brazil) | `en` |
 | `temperature` | `C` or `F` | `C` |
 | `stremio_key` | Your Stremio key (step 3), or empty | |
 | `youtube_key` | Your YouTube key (step 3), or empty | `AIza…` |
@@ -276,7 +276,7 @@ Settings → Apps. If the new home screen crashes three times in five minutes, i
 | The home screen is empty or says the TMDB key is missing | Check `tmdb_key`, rebuild and install. Give the first load about 3 minutes. |
 | No Continue watching | Check `stremio_key` and that you have something started on Stremio. If you changed your Stremio password or signed out everywhere, get the key again. |
 | A Stremio title won't play in the player | That title has no direct links in your add-ons; open it in the Stremio app. 4K and Dolby Vision streams are tried last because some TVs can't decode them. |
-| Trailers are in English or muted | TMDB has no Spanish one. Add `youtube_key`; if you already have it, the day's searches may have run out. |
+| Trailers are muted or in another language | TMDB has none in yours. Add `youtube_key`; if you already have it, the day's searches may have run out. |
 | The remote's Netflix button (or another shortcut) does nothing | On some TVs (TCL) those shortcuts belong to the factory home screen; they rest while Free My TV is on and come back with *Original*. |
 
 ## Notes

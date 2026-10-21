@@ -21,7 +21,7 @@ Um destaque com trailer, fileiras de sugestões do TMDB e do que você assiste n
 ## O que tem
 
 - **Sem anúncios.** Nada de fileiras patrocinadas, banners ou promos que tocam sozinhas.
-- **Um destaque com trailer.** O título em foco cresce para 16:9 e toca o trailer dentro do card, em espanhol latino quando existe.
+- **Um destaque com trailer.** O título em foco cresce para 16:9 e toca o trailer dentro do card, no seu idioma quando existe.
 - **Uma aba por serviço:** Para você, Netflix, Disney+, Prime Video, Paramount+, Crunchyroll e Stremio, cada uma com suas fileiras.
 - **Continuar assistindo, Minha lista e Novos episódios** da sua conta do Stremio, e sugestões pelo que você assiste.
 - **Uma página por série** com retomar, temporadas, episódios e próximas estreias.
@@ -30,7 +30,7 @@ Um destaque com trailer, fileiras de sugestões do TMDB e do que você assiste n
 - **Busca, todos os seus apps e o clima** da sua cidade no canto superior direito.
 - **Seguro.** Sem root. Nada é desinstalado. Um botão traz de volta a tela inicial de fábrica.
 
-Os menus da tela inicial estão em espanhol (`language=es`) ou inglês; as capturas mostram em espanhol. Com `language=pt`, os títulos e sinopses do TMDB vêm em português e o app de ajustes fica em português, mas os menus da tela inicial ficam em inglês.
+O app inteiro (tela inicial, player, busca e ajustes) está em espanhol, inglês ou português do Brasil (`language=es`, `en` ou `pt`), e a dublagem e as legendas seguem o idioma: português do Brasil ou espanhol latino primeiro. As capturas mostram em espanhol.
 
 ## Capturas
 
@@ -63,10 +63,10 @@ Tudo fica no `config.properties`, criado pelo primeiro `./build.sh` e que nunca 
 | `tmdb_region` | Seu país (duas letras): qual título está em qual serviço | `US` |
 | `latitude`, `longitude` | Sua cidade, para o clima e o visual noturno | Nova York |
 | `city` | O nome ao lado do clima | vazio |
-| `language` | `pt` para títulos do TMDB em português, `es` para espanhol (`auto` e `en` também servem) | `auto` |
+| `language` | `pt`, `es` ou `en`: o app, os títulos do TMDB e a dublagem e as legendas preferidas. `auto` segue a TV | `auto` |
 | `temperature` | `C`, `F` ou `auto` | `auto` |
 | `stremio_key` | Continuar assistindo, Minha lista, sugestões e o player. Opcional. | vazia |
-| `youtube_key` | Trailers que o TMDB não tem (em espanhol latino com `language=es`). Opcional. | vazia |
+| `youtube_key` | Trailers no seu idioma que o TMDB não tem. Opcional. | vazia |
 | `currency` | Moeda dos preços de cripto (não aparecem nesta tela inicial) | `USD` |
 | `disable_assistant` | Também desliga o Google Assistente | `false` |
 

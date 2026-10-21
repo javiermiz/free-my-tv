@@ -35,7 +35,8 @@ public class PlayerActivity extends Activity implements Playback.Listener {
     @Override public void onStarted() {}
 
     @Override public void onDone(boolean failed) {
-        if (failed) Toast.makeText(this, FlixView.es("No se pudo reproducir", "Couldn't play it"), Toast.LENGTH_SHORT).show();
+        if (failed) Toast.makeText(this, Ui.t("No se pudo reproducir",
+                "Couldn't play it", "Não deu para reproduzir"), Toast.LENGTH_SHORT).show();
         finish();
     }
 

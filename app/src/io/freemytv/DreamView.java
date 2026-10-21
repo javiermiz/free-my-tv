@@ -756,7 +756,7 @@ final class DreamView extends View implements Choreographer.FrameCallback, HomeD
             String symbol = Symbols.weather(wx.code, wx.isDay);
             String now = HomeData.degrees(wx.temp);
             String range = Ui.en ? "H:" + HomeData.degrees(wx.max) + "  L:" + HomeData.degrees(wx.min)
-                    : "Máx. " + HomeData.degrees(wx.max) + "  Mín. " + HomeData.degrees(wx.min);
+                    : "Máx. " + HomeData.degrees(wx.max) + "  Mín. " + HomeData.degrees(wx.min);   // the same in Spanish
             float sw = Symbols.width(getContext(), symbol, 32 * k);
             float width = sw + 12 * k + weatherPaint.measureText(now) + 18 * k + weatherDim.measureText(range);
             float x = cx - width / 2;
@@ -784,6 +784,7 @@ final class DreamView extends View implements Choreographer.FrameCallback, HomeD
             x += quotePaint.measureText(values[i]) + spacing;
         }
         String stale = HomeData.staleness(data.pricesAt, 5 * 60_000L);
-        if (!stale.isEmpty()) c.drawText(Ui.tr("cotações de ", "prices from ") + stale, cx, base + 38 * k, stalePaint);
+        if (!stale.isEmpty()) c.drawText(Ui.t("precios de ",
+                "prices from ", "cotações de ") + stale, cx, base + 38 * k, stalePaint);
     }
 }

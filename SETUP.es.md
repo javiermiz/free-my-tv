@@ -158,8 +158,9 @@ Si aún no tienes cuenta, créala gratis en [stremio.com](https://www.stremio.co
    dice *No encontrada*, recarga la página con la sesión iniciada y vuelve a intentar.
 
 **Para el reproductor propio** además necesitas, en tu cuenta de Stremio, add-ons que den **enlaces directos** (HTTP).
-El reproductor usa los add-ons que ya tengas instalados en tu cuenta y elige el mejor: audio en español latino, luego el
-original con subtítulos en español, luego español de España, luego lo demás. Los torrents no se reproducen aquí (necesitan
+El reproductor usa los add-ons que ya tengas instalados en tu cuenta y elige el mejor según tu `language`: doblado en ese idioma
+(español latino o portugués de Brasil primero, luego el de España o Portugal), si no el original con subtítulos en ese
+idioma, luego lo demás. En inglés deja el audio original. Los torrents no se reproducen aquí (necesitan
 el motor de Stremio): si un título solo tiene torrents, el home lo abre en la app de Stremio. Usa solo add-ons y fuentes
 que tengas derecho a ver.
 
@@ -193,7 +194,7 @@ editor de texto (en Mac: `open -e config.properties`) y llena:
 | `tmdb_region` | Tu país en dos letras (decide qué título está en qué servicio) | `MX`, `CO`, `AR`, `CL`, `PE`, `ES`, `US` |
 | `latitude`, `longitude` | Las coordenadas de tu ciudad, en grados decimales | Ciudad de México: `19.4326`, `-99.1332` |
 | `city` | El nombre que se ve junto al clima | `CDMX` |
-| `language` | `es` para títulos, tráilers y home en español | `es` |
+| `language` | El idioma de la app y de títulos, tráilers, doblaje y subtítulos: `es`, `en` o `pt` (Brasil) | `es` |
 | `temperature` | `C` o `F` | `C` |
 | `stremio_key` | Tu llave de Stremio (paso 3), o vacío | |
 | `youtube_key` | Tu llave de YouTube (paso 3), o vacío | `AIza…` |
@@ -245,8 +246,8 @@ firmarse con la misma llave. Si la pierdes, tendrás que desinstalar la app y vo
 
 ## 6. Actívalo en la TV
 
-1. En la TV abre la app **Free My TV** (está en tus apps; sus menús están en inglés).
-2. Entra a **Home Screen** y elige **Free My TV**.
+1. En la TV abre la app **Free My TV** (está en tus apps).
+2. Entra a **Inicio** y elige **Free My TV**.
 3. La TV pregunta otra vez *¿Permitir depuración USB?*: es la app usando el ADB de la propia TV para hacer el cambio.
    Marca **Permitir siempre** y acepta.
 4. Pulsa el botón de inicio del control: ya estás en el home nuevo.
@@ -263,7 +264,7 @@ No cambies el modo desde la computadora: hazlo siempre desde la app en la TV.
 **Actualizar** (cambiaste `config.properties` o bajaste código nuevo con `git pull`): repite el paso 5 (`./build.sh`,
 `adb connect`, `adb install -r FreeMyTV.apk`). No hace falta volver a activarlo.
 
-**Volver al original:** en la TV, *Free My TV* → *Home Screen* → *Original*. El home de fábrica, el protector de
+**Volver al original:** en la TV, *Free My TV* → *Inicio* → *Original*. El home de fábrica, el protector de
 pantalla y todas las apps vuelven tal como estaban. Para quitarlo del todo, primero cambia a *Original* y después
 desinstala *Free My TV* desde Ajustes → Apps. Si el home nuevo falla tres veces en cinco minutos, vuelve al original
 solo.
@@ -280,7 +281,7 @@ solo.
 | El home sale vacío o dice que falta la llave de TMDB | Revisa `tmdb_key`, recompila e instala. Espera unos 3 minutos a la primera carga. |
 | No hay Continuar viendo | Revisa `stremio_key` y que tengas algo empezado en Stremio. Si cambiaste la contraseña de Stremio o cerraste sesión en todos lados, saca la llave otra vez. |
 | Un título de Stremio no se reproduce en el reproductor propio | Ese título no tiene enlaces directos en tus add-ons; ábrelo en la app de Stremio. Los 4K y Dolby Vision se prueban al final porque algunas TVs no los decodifican. |
-| Los tráilers salen en inglés o sin sonido | TMDB no tiene uno en español. Agrega `youtube_key`; si ya la tienes, quizá se acabaron las búsquedas del día. |
+| Los tráilers salen sin sonido o en otro idioma | TMDB no tiene uno en tu idioma. Agrega `youtube_key`; si ya la tienes, quizá se acabaron las búsquedas del día. |
 | El botón de Netflix (u otro atajo) del control no hace nada | En algunas TVs (TCL) esos atajos dependen del home de fábrica; descansan mientras Free My TV está activo y vuelven con *Original*. |
 
 ## Notas

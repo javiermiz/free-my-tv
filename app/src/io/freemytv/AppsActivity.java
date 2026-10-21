@@ -54,7 +54,7 @@ public class AppsActivity extends Activity {
         title.setTypeface(Ui.semibold);
         head.addView(title, new LinearLayout.LayoutParams(-2, -2));
         EditText search = new EditText(this);
-        search.setHint(FlixView.es("Buscar apps", "Search apps"));
+        search.setHint(Ui.t("Buscar apps", "Search apps", "Buscar apps"));
         search.setSingleLine(true);
         search.setImeOptions(EditorInfo.IME_ACTION_SEARCH);
         search.setTextColor(Color.WHITE);
@@ -134,7 +134,8 @@ public class AppsActivity extends Activity {
             int[] at = new int[2];
             view.getLocationOnScreen(at);
             if (!HomeApps.open(this, it, view, at[0], at[1], view.getWidth(), view.getHeight()))
-                Toast.makeText(this, FlixView.es("No se pudo abrir ", "Couldn't open ") + it.label, Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, Ui.t("No se pudo abrir ",
+                        "Couldn't open ", "Não deu para abrir ") + it.label, Toast.LENGTH_SHORT).show();
         });
         col.addView(grid, new LinearLayout.LayoutParams(-1, 0, 1));
         setContentView(root);
@@ -148,7 +149,8 @@ public class AppsActivity extends Activity {
             list.addAll(HomeApps.others(app));
             list.addAll(HomeApps.allInputs(app));
             list.add(HomeApps.settings());
-            list.add(HomeApps.action(HomeApps.ANDROID_SETTINGS, "tv-settings", FlixView.es("Ajustes de la TV", "TV Settings"), "tv_settings"));
+            list.add(HomeApps.action(HomeApps.ANDROID_SETTINGS, "tv-settings", Ui.t("Ajustes de la TV",
+                    "TV Settings", "Ajustes da TV"), "tv_settings"));
             runOnUiThread(() -> {
                 all.clear();
                 java.util.Set<String> seen = new java.util.HashSet<>();

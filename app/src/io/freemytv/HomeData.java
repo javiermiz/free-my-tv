@@ -49,7 +49,7 @@ final class HomeData {
     }
 
     static String coinName(int i) {
-        return i == 3 ? Ui.tr("Dólar", "Dollar") : COIN_NAMES[i];
+        return i == 3 ? Ui.t("Dólar", "Dollar", "Dólar") : COIN_NAMES[i];
     }
 
     private static String pricesUrl() {
@@ -236,7 +236,7 @@ final class HomeData {
     // MARK: - Formatting
 
     private static Locale locale() {
-        return Ui.en ? Locale.US : PT;
+        return Ui.LOCALE;
     }
 
     /** 580.4k · 21.0k · 1.04k · 5.61 (as short as possible; the dollar always with cents). */
@@ -277,6 +277,18 @@ final class HomeData {
             if (code >= 71 && code <= 77 || code == 85 || code == 86) return "Snow";
             if (code >= 95) return "Thunderstorms";
             return "Rain";
+        }
+        if (Ui.LANG.equals("es")) {
+            if (code == 0) return day ? "Despejado" : "Noche despejada";
+            if (code == 1) return "Pocas nubes";
+            if (code == 2) return "Parcialmente nublado";
+            if (code == 3) return "Nublado";
+            if (code == 45 || code == 48) return "Niebla";
+            if (code >= 51 && code <= 57) return "Llovizna";
+            if (code == 65 || code == 67 || code == 82) return "Lluvia fuerte";
+            if (code >= 71 && code <= 77 || code == 85 || code == 86) return "Nieve";
+            if (code >= 95) return "Tormenta";
+            return "Lluvia";
         }
         if (code == 0) return day ? "Céu limpo" : "Noite limpa";
         if (code == 1) return "Poucas nuvens";
@@ -321,7 +333,7 @@ final class HomeData {
     }
 
     static String hour(long at) {
-        return Ui.en ? new SimpleDateFormat("h a", Locale.US).format(new java.util.Date(at))
+        return !Ui.LANG.equals("pt") ? new SimpleDateFormat("h a", Locale.US).format(new java.util.Date(at))
                 : new SimpleDateFormat("HH'h'", PT).format(new java.util.Date(at));
     }
 
@@ -332,6 +344,7 @@ final class HomeData {
         if (age < every * 2) return "";
         long minutes = age / 60_000;
         if (Ui.en) return minutes < 60 ? minutes + " min ago" : (minutes / 60) + " h ago";
+        if (Ui.LANG.equals("es")) return minutes < 60 ? "hace " + minutes + " min" : "hace " + (minutes / 60) + " h";
         return minutes < 60 ? "há " + minutes + " min" : "há " + (minutes / 60) + " h";
     }
 }

@@ -156,15 +156,15 @@ Se ainda não tem conta, crie grátis em [stremio.com](https://www.stremio.com).
    `config.properties`. Se disser *Não encontrada*, recarregue a página com a sessão aberta e tente de novo.
 
 **Para o player** você também precisa, na sua conta do Stremio, de add-ons que deem **links diretos** (HTTP). O player
-usa os add-ons que você já tem instalados na conta e escolhe o melhor stream: áudio em espanhol latino, depois o original
-com legendas em espanhol, depois espanhol da Espanha, depois o resto. Torrents não tocam aqui (precisam do motor do
+usa os add-ons que você já tem instalados na conta e escolhe o melhor stream pelo seu `language`: dublado nesse
+idioma (português do Brasil ou espanhol latino primeiro, depois o de Portugal ou da Espanha), senão o original com
+legendas nesse idioma, depois o resto. Em inglês mantém o áudio original. Torrents não tocam aqui (precisam do motor do
 Stremio): se um título só tem torrents, a tela inicial abre no app do Stremio. Use só add-ons e fontes que você tem
 direito de assistir.
 
 ### YouTube (`youtube_key`): opcional, grátis
 
-Serve para buscar no YouTube o trailer quando o TMDB não tem: em espanhol latino (ou legendado em espanhol) com
-`language=es`, e o trailer oficial nos outros idiomas.
+Serve para buscar no YouTube o trailer no seu idioma (dublado ou legendado) quando o TMDB não tem.
 
 1. Entre em [console.cloud.google.com](https://console.cloud.google.com) com a sua conta do Google. Se for a primeira
    vez, aceite os termos (não pede cartão).
@@ -192,7 +192,7 @@ qualquer editor de texto (no Mac: `open -e config.properties`) e preencha:
 | `tmdb_region` | Seu país em duas letras (decide qual título está em qual serviço) | `BR`, `PT`, `US` |
 | `latitude`, `longitude` | As coordenadas da sua cidade, em graus decimais | São Paulo: `-23.5505`, `-46.6333` |
 | `city` | O nome que aparece ao lado do clima | `São Paulo` |
-| `language` | `pt` para títulos e sinopses do TMDB em português; `es` para espanhol; `en` para inglês | `pt` |
+| `language` | O idioma do app e dos títulos, trailers, dublagem e legendas: `pt` (Brasil), `es` ou `en` | `pt` |
 | `temperature` | `C` ou `F` | `C` |
 | `stremio_key` | Sua chave do Stremio (passo 3), ou vazio | |
 | `youtube_key` | Sua chave do YouTube (passo 3), ou vazio | `AIza…` |

@@ -1,25 +1,34 @@
 <div align="center">
 
-<img src="docs/assets/icon-512.png" width="96" alt="">
+<img src="app/res/drawable-nodpi/icon.png" width="96" alt="">
 
-# Free My TV
+# Free My TV · versión streaming
 
-**A fast, ad-free home screen for Google TV.**
+**Un home sin anuncios para Google TV, al estilo de las apps de streaming.**
 
-Trending picks from your own apps, the weather at a glance, and a look that follows the sunset.<br>
-Open source. Built with Claude Code. One button to undo.
+Un destacado con tráiler, filas de recomendaciones de TMDB y de lo que ves en Stremio, una pestaña por servicio, una pantalla por serie y un reproductor propio.
 
-[**freemytv.io**](https://freemytv.io) · [Install](#install) · [Any TV](#any-tv) · [Make it yours](#make-it-yours)
+[Capturas](#capturas) · [Instalación paso a paso](SETUP.md) · [Ajustes](#ajustes) · [Volver al original](#volver-al-original)
 
-<img src=".github/screens/hero.webp" width="880" alt="Free My TV, esta versión: un home al estilo de las apps de streaming, con un destacado con tráiler, pestañas por servicio y el reproductor propio">
+<img src=".github/screens/hero.webp" width="880" alt="Free My TV versión streaming: un destacado con tráiler, pestañas por servicio y el reproductor propio">
 
 </div>
 
-> **Esta versión:** instrucciones de instalación y configuración en español en [SETUP.md](SETUP.md).
+> **Basado en [Free My TV](https://github.com/simbasjungles/free-my-tv)** de simbasjungles y sus colaboradores (licencia MIT). Este repositorio es un trabajo derivado: toma su base (el cambio seguro de home, la lista de apps protegidas, el watchdog, el build sin Gradle) y le cambia el home por completo. Esta versión no tiene sitio web; todo lo que necesitas está aquí y en [SETUP.md](SETUP.md).
 
-## Esta versión
+## Qué tiene
 
-Un home al estilo de las apps de streaming: un destacado con tráiler, filas de recomendaciones (de TMDB y de lo que ves en Stremio), una pestaña por servicio, una pantalla por serie y un reproductor propio para Stremio.
+- **Sin anuncios.** Ni filas patrocinadas, ni banners, ni promos que se reproducen solas.
+- **Un destacado con tráiler.** El título enfocado se agranda a 16:9 y reproduce su tráiler adentro, en español latino si existe.
+- **Una pestaña por servicio:** Para ti, Netflix, Disney+, Prime Video, Paramount+, Crunchyroll y Stremio, cada una con sus propias filas.
+- **Continuar viendo, Mi lista y Nuevos episodios** desde tu cuenta de Stremio, y recomendaciones según lo que ves.
+- **Una pantalla por serie** con reanudar, temporadas, capítulos y próximos estrenos.
+- **Un reproductor propio** para los títulos de Stremio, con audio, subtítulos y versión a elegir, y tu avance sincronizado con Stremio (lo que ves aquí aparece igual en Stremio y en tu teléfono).
+- **Abre cada título en su app:** Netflix, Disney+ y Prime Video abren directo en la película o serie, Stremio en el capítulo.
+- **Buscar, todas tus apps y el clima** de tu ciudad arriba a la derecha.
+- **Seguro.** Sin root. No desinstala nada. Un botón devuelve el home de fábrica.
+
+## Capturas
 
 | | |
 |---|---|
@@ -32,150 +41,93 @@ Un home al estilo de las apps de streaming: un destacado con tráiler, filas de 
 | <img src=".github/screens/14-serie.webp" alt="Serie"><br>**Una pantalla por serie:** reanudar, temporadas y próximos capítulos | <img src=".github/screens/15-controles.webp" alt="Reproductor"><br>**El reproductor propio,** con tu avance sincronizado a Stremio |
 | <img src=".github/screens/16-audio-subs.webp" alt="Audio y subtítulos"><br>**Audio, subtítulos y versión** | |
 
-## What you get
+## Instalación
 
-- **No ads.** No sponsored rows, banners or autoplaying promos. Not one.
-- **Your apps, front and center.** The streaming apps you actually use, on a glass shelf.
-- **Trending, not sponsored.** Three fresh picks every hour from what's trending this week and the latest releases, only from apps you already have. Movies and Shows get their own tabs.
-- **Weather and markets, one press away.** The hour-by-hour forecast, sunrise and sunset, and live crypto prices.
-- **Light by day, dark by night.** It follows your city's real sunset, the way your phone does.
-- **A screensaver to match.** Full-screen photos of the picks with a big glass clock.
-- **Fast.** 60 fps, every frame in 16.6 ms, on the TV's own chip. The home screen uses 96 MB of memory instead of 242 MB (−60%).<br><sub>Measured on a 98″ TCL Google TV running Android 14.</sub>
-- **Safe.** No root. Nothing is uninstalled. One button brings back the factory home screen.
+Unos 20 minutos la primera vez. Necesitas una TV con Google TV o Android TV (Android 12 o más nuevo) y una computadora en la misma red Wi-Fi.
 
-## Install
+**Todos los pasos, uno por uno, están en [SETUP.md](SETUP.md):** las herramientas, preparar la TV, cada llave (TMDB, Stremio, YouTube) con cómo conseguirla, compilar, instalar, activarlo y qué hacer si algo falla.
 
-About ten minutes. You need a Google TV or Android TV (Android 12 or newer) and a computer on the same Wi-Fi.
+¿Usas [Claude Code](https://claude.com/claude-code)? Clona el repositorio, abre Claude Code en la carpeta y dile *"Instala Free My TV en mi TV en 192.168.1.50. Vivo en Bogotá."* Instala lo que falte, compila y lo pone en tu TV ([CLAUDE.md](CLAUDE.md) le dice cómo). Las llaves las pegas tú en `config.properties`.
 
-### The easy way: Claude Code
+## Ajustes
 
-1. **On the TV**, turn on developer mode: Settings → System → About → press *Android TV OS build* 7 times. Then Settings → System → Developer options → turn on **USB debugging**. Write down the TV's IP address (Settings → Network & Internet).
-2. **On your computer**, get the code:
-   ```bash
-   git clone https://github.com/javiermiz/free-my-tv && cd free-my-tv
-   ```
-3. **Open [Claude Code](https://claude.com/claude-code) in that folder** and say:
-   > Install Free My TV on my TV at 192.168.1.50. I live in Lisbon.
+Todo vive en `config.properties`, que crea el primer `./build.sh` y que nunca se sube a git:
 
-   It installs the tools it needs, builds the app and puts it on your TV. Swap in your TV's IP and your city.
-4. **On the TV**, open *Free My TV* → *Home Screen* → *Free My TV*, and accept the debugging prompt (tick *Always allow*).
-
-### The manual way
-
-1. **On the TV**, do step 1 above.
-2. **Tools:** a JDK (17+), the Android SDK command-line tools (build-tools 34, platform android-34) and adb. On a Mac:
-   ```bash
-   brew install --cask temurin android-commandlinetools android-platform-tools
-   sdkmanager "build-tools;34.0.0" "platforms;android-34"
-   ```
-   On Linux, get OpenJDK 17, Android's command-line tools and adb from your package manager, then run the same `sdkmanager` line. On Windows, use WSL.
-3. **Build:**
-   ```bash
-   ./build.sh
-   ```
-   The first run creates `config.properties`. Set your city and your [TMDB key](#the-tmdb-key) there, then run it again.
-4. **Install:**
-   ```bash
-   adb connect 192.168.1.50:5555
-   adb install -r FreeMyTV.apk
-   ```
-5. **On the TV**, open *Free My TV* → *Home Screen* → *Free My TV*.
-
-## Settings
-
-Everything lives in `config.properties`, created by the first build:
-
-| Key | What it does | Default |
+| Clave | Para qué | Por defecto |
 |---|---|---|
-| `tmdb_key` | Your free TMDB key, for the picks | empty |
-| `tmdb_region` | Your country (two letters): which titles are on which app | `US` |
-| `latitude`, `longitude` | Your city, for the weather and the sunset | New York |
-| `city` | The name on the weather card | `Weather` |
-| `language` | `auto` (follows the TV), `en` or `pt` | `auto` |
-| `currency` | Crypto prices in `USD`, `EUR`, `BRL`… | `USD` |
-| `temperature` | `C`, `F` or `auto` | `auto` |
-| `disable_assistant` | Also turn off Google Assistant | `false` |
+| `tmdb_key` | Recomendaciones, imágenes, logos y tráilers. **Necesaria** para el home. | vacía |
+| `tmdb_region` | Tu país en dos letras: qué título está en qué servicio | `US` |
+| `latitude`, `longitude` | Tu ciudad, para el clima y el modo noche | Nueva York |
+| `city` | El nombre junto al clima | vacío |
+| `language` | `es` para títulos y home en español (`auto`, `en` o `pt` también sirven) | `auto` |
+| `temperature` | `C`, `F` o `auto` | `auto` |
+| `stremio_key` | Continuar viendo, Mi lista, recomendaciones y el reproductor propio. Opcional. | vacía |
+| `youtube_key` | Tráilers en español latino que TMDB no tiene. Opcional. | vacía |
+| `currency` | Moneda de los precios cripto (no se muestran en este home) | `USD` |
+| `disable_assistant` | También apaga el Asistente de Google | `false` |
 
-Changed something? Run `./build.sh` and install again. Keep `freemytv.keystore`: updates are signed with it.
+Cómo conseguir cada llave: [SETUP.md](SETUP.md#3-las-llaves). ¿Cambiaste algo? Vuelve a correr `./build.sh` e instala otra vez. Guarda `freemytv.keystore`: las actualizaciones se firman con él.
 
-### The TMDB key
+## Volver al original
 
-Free, and it takes two minutes: create an account at [themoviedb.org](https://www.themoviedb.org/signup), then open [Settings → API](https://www.themoviedb.org/settings/api) and request a developer key. Paste the *API Read Access Token* (or the *API Key*) after `tmdb_key=`. It's your key: `config.properties` stays out of git.
+En la TV: *Free My TV* → *Home Screen* → *Original*. El home de fábrica, el protector de pantalla y todas las apps vuelven tal como estaban. Si el home nuevo falla tres veces en cinco minutos, vuelve al original solo.
 
-## Going back
+Para quitarlo del todo, primero cambia a *Original* y después desinstala *Free My TV* (Ajustes → Apps).
 
-On the TV: *Free My TV* → *Home Screen* → *Original*. The factory home screen, screensaver and every app come back exactly as they were. If the new home screen ever crashes three times in five minutes, it switches back by itself.
+## Qué cambia en la TV
 
-To remove it for good, switch to *Original* first, then uninstall *Free My TV* (Settings → Apps).
+- Se vuelve el home y el protector de pantalla.
+- Apaga, sin desinstalar:
+  - el home y el protector de pantalla de fábrica, con los atajos del control que dependen de ellos en algunas TVs (como el botón de Netflix en TCL);
+  - el home de recuperación de Google TV, Play Juegos y YouTube Music;
+  - en TVs TCL, el canal de TCL, mensajes, demo de tienda, menú de hotel, manuales, duplicación de pantalla y apps de registro;
+  - el Asistente de Google, solo con `disable_assistant=true`.
+- Imagen, sonido, entradas, emparejamiento del control, servicios de Google y Play Store están en una lista protegida que se revisa antes de cada cambio.
 
-## What it changes
+## Otras TVs
 
-- It becomes the home screen and the screensaver.
-- It turns off, without uninstalling:
-  - the stock home screen and screensaver, with the remote shortcuts they run on some TVs (like the Netflix button on TCL);
-  - Google TV's recovery home, Play Games and YouTube Music;
-  - on TCL TVs, the TCL Channel, messages, store demo, hotel menu, manuals, mirroring and logging apps;
-  - Google Assistant, only with `disable_assistant=true`.
-- Picture, sound, inputs, remote pairing, Google services and the Play Store are on a protected list, checked before every change.
+Funciona en Google TV y Android TV: TCL, Hisense, Sony, Philips, Xiaomi y otras, y en streamers como Chromecast con Google TV, Google TV Streamer, onn 4K y NVIDIA Shield. **Samsung, LG u otra TV:** conecta un streamer con Google TV por HDMI e instálalo ahí.
 
-## Any TV
+Para adaptarlo a otra marca, las listas están en el código:
 
-Free My TV runs on Google TV and Android TV: TCL, Sony, Hisense, Philips, Xiaomi and more, plus streamers like Chromecast with Google TV, the Google TV Streamer, onn 4K and NVIDIA Shield.
-
-**Samsung, LG or any other TV:** plug a Google TV streamer into HDMI and free that one. Same steps, same home screen.
-
-**A different brand or model:** ask Claude. Free My TV is made to be adapted by AI. Open the folder in Claude Code and say *"set it up for my Sony"*: it reads your TV, finds its home screen and its promo apps, updates the lists below and walks you through a test. [CLAUDE.md](CLAUDE.md) tells it how.
-
-| What | Where |
+| Qué | Dónde |
 |---|---|
-| Apps to turn off | `DEBLOAT` in [`HomeMode.java`](app/src/io/freemytv/HomeMode.java) |
-| Apps never to touch | `PROTECTED` in the same file |
-| Apps on the shelf | `SHELF` in [`HomeApps.java`](app/src/io/freemytv/HomeApps.java) |
-| Your brand's live TV app | `LIVE_TV_APPS` in the same file |
+| Apps que se apagan | `DEBLOAT` en [`HomeMode.java`](app/src/io/freemytv/HomeMode.java) |
+| Apps que nunca se tocan | `PROTECTED` en el mismo archivo |
+| Apps de la fila | `SHELF` en [`HomeApps.java`](app/src/io/freemytv/HomeApps.java) |
+| La app de TV en vivo de tu marca | `LIVE_TV_APPS` en el mismo archivo |
 
-## Make it yours
+## Cómo funciona
 
-It's your code, and Claude Code finds its way around it. Try:
+- **Una app de Android en Java, sin Gradle.** [`build.sh`](build.sh) corre aapt2 → javac → d8 → zipalign → apksigner. La única librería es ExoPlayer (Media3), para el reproductor; `build.sh` la descarga sola la primera vez.
+- **Usa el ADB de la propia TV, desde la TV.** La app se conecta a `127.0.0.1:5555` con su propia llave (por eso la TV pregunta *¿Permitir depuración USB?*) y corre los mismos comandos que correrías tú: `cmd package set-home-activity`, `settings put secure screensaver_components`, `pm disable-user`. Nada escucha en la red.
+- **Una red de seguridad.** Un watchdog en otro proceso vuelve al home de fábrica tras tres fallas en cinco minutos, y una revisión al encender mantiene tu elección después de las actualizaciones de la TV.
 
-- *"Add Crunchyroll to the shelf."*
-- *"Show the prices in euros."*
-- *"Add Spanish."*
-- *"Switch to the night look an hour after sunset."*
-
-## How it works
-
-- **A plain Android app, no Gradle, no libraries.** [`build.sh`](build.sh) runs aapt2 → javac → d8 → zipalign → apksigner and makes a 2 MB APK.
-- **It uses the TV's own ADB, from inside the TV.** The app connects to `127.0.0.1:5555` with its own key (that's the *Allow USB debugging?* prompt) and runs the same commands you would: `cmd package set-home-activity`, `settings put secure screensaver_components`, `pm disable-user`. Nothing listens to the network.
-- **Drawn by hand on one Canvas**, with Android 13 shaders for the frosted glass and the sky (plain fills on Android 12).
-- **A safety net.** A watchdog in a separate process brings back the stock home screen after three crashes in five minutes, and a boot check keeps your choice after TV updates.
-- **Data** from TMDB (trending titles, new releases and which app streams what in your country), Open-Meteo (forecast, sunrise and sunset) and Binance (24-hour prices).
-
-| File | What it is |
+| Archivo | Qué es |
 |---|---|
-| [`HomeView.java`](app/src/io/freemytv/HomeView.java) | The home screen |
-| [`HomeMode.java`](app/src/io/freemytv/HomeMode.java) | Switching between Free My TV and Original |
-| [`Adb.java`](app/src/io/freemytv/Adb.java) | The TV's own ADB, from inside the TV |
-| [`Recs.java`](app/src/io/freemytv/Recs.java) | The picks (TMDB) |
-| [`HomeData.java`](app/src/io/freemytv/HomeData.java) | Weather and prices |
-| [`HomeApps.java`](app/src/io/freemytv/HomeApps.java) | The shelf, inputs and All Apps |
-| [`DreamView.java`](app/src/io/freemytv/DreamView.java) | The screensaver |
-| [`SettingsActivity.java`](app/src/io/freemytv/SettingsActivity.java) | The settings screen (the app's icon) |
-| [`Watchdog.java`](app/src/io/freemytv/Watchdog.java) | The safety net |
+| [`FlixView.java`](app/src/io/freemytv/FlixView.java) | El home al estilo streaming |
+| [`Recs.java`](app/src/io/freemytv/Recs.java) | Las recomendaciones y los tráilers (TMDB, Stremio, YouTube, Wikidata) |
+| [`Streams.java`](app/src/io/freemytv/Streams.java) | Los streams y tu avance en Stremio |
+| [`PlayerActivity.java`](app/src/io/freemytv/PlayerActivity.java) | El reproductor |
+| [`SearchActivity.java`](app/src/io/freemytv/SearchActivity.java) | Buscar |
+| [`HomeMode.java`](app/src/io/freemytv/HomeMode.java) | El cambio entre Free My TV y Original |
+| [`Adb.java`](app/src/io/freemytv/Adb.java) | El ADB de la TV, desde la TV |
+| [`Watchdog.java`](app/src/io/freemytv/Watchdog.java) | La red de seguridad |
 
-The website ([freemytv.io](https://freemytv.io)) is in [`docs/`](docs): plain HTML, CSS and JS on GitHub Pages.
+## Privacidad
 
-## Privacy
+Sin cuentas propias, sin analíticas, sin rastreo. La app solo habla con TMDB, Open-Meteo (con las coordenadas que pongas), Wikidata (para abrir cada título en su app), YouTube (los tráilers, y la búsqueda si pones `youtube_key`) y, si pones `stremio_key`, con tu cuenta de Stremio y sus add-ons. Tus llaves y ajustes se quedan en tu computadora y en tu TV.
 
-No accounts, no analytics, no tracking. The app only talks to TMDB, Open-Meteo (with the coordinates you set) and Binance. Your settings stay on your computer and your TV.
+## Créditos
 
-## Credits
+- **[Free My TV](https://github.com/simbasjungles/free-my-tv)** de simbasjungles y colaboradores: el proyecto original en el que se basa esta versión (MIT).
+- Hecho con [Claude Code](https://claude.com/claude-code).
+- Este producto usa la API de TMDB pero no está avalado ni certificado por [TMDB](https://www.themoviedb.org/).
+- Clima de [Open-Meteo.com](https://open-meteo.com/) (CC BY 4.0). Identificadores de títulos de [Wikidata](https://www.wikidata.org/) (CC0).
+- Reproductor: [AndroidX Media3 / ExoPlayer](https://github.com/androidx/media) (Apache 2.0).
+- Íconos: [Material Symbols](https://fonts.google.com/icons) (Apache 2.0). Fuente: [Inter](https://rsms.me/inter/) (SIL OFL 1.1).
+- Sin relación con Google, TCL, Hisense, Stremio ni ningún servicio de streaming. Los nombres y logos de las apps son de sus dueños.
 
-- Built with [Claude Code](https://claude.com/claude-code).
-- This product uses the TMDB API but is not endorsed or certified by [TMDB](https://www.themoviedb.org/).
-- Weather data by [Open-Meteo.com](https://open-meteo.com/) (CC BY 4.0). Prices from the [Binance](https://www.binance.com/) public API.
-- Icons: [Material Symbols](https://fonts.google.com/icons) (Apache 2.0). Font: [Inter](https://rsms.me/inter/) (SIL OFL 1.1). Coin logos: [cryptocurrency-icons](https://github.com/spothq/cryptocurrency-icons) (CC0).
-- Not affiliated with Google, TCL or any streaming service. App names and logos belong to their owners.
+## Licencia
 
-## License
-
-[MIT](LICENSE). Fork it, change it, ship it.
+[MIT](LICENSE), igual que el original: el aviso de copyright y la licencia del proyecto original se mantienen.

@@ -23,7 +23,8 @@ A featured title with its trailer, rows of picks from TMDB and from what you wat
 - **No ads.** No sponsored rows, banners or autoplaying promos.
 - **A featured title with its trailer.** The focused title widens to 16:9 and plays its trailer inside the card, in your language when there is one.
 - **A tab per service:** For you, Netflix, Disney+, Prime Video, Paramount+, Crunchyroll and Stremio, each with its own rows.
-- **Continue watching, My list and New episodes** from your Stremio account, and picks based on what you watch.
+- **Continue watching and New episodes** from your Stremio account, and picks based on what you watch.
+- **Hold OK on a card** for its menu: play, add to or remove from My list, remove from Continue watching (on Stremio too). On an app: move it or take it off the shelf.
 - **A page per show** with resume, seasons, episodes and upcoming air dates.
 - **Its own player** for Stremio titles, with audio, subtitles and version to choose from, and your place synced to Stremio (what you watch here shows up the same on Stremio and on your phone).
 - **Opens every title in its app:** Netflix, Disney+ and Prime Video open right on the movie or show, Stremio on the episode.
@@ -37,7 +38,7 @@ The whole app (home screen, player, search and settings) is in Spanish, English 
 | | |
 |---|---|
 | <img src=".github/screens/01-inicio.webp" alt="Home"><br>**For you:** the featured title, with its trailer | <img src=".github/screens/02-continuar.webp" alt="Continue watching"><br>**Continue watching,** from your Stremio account |
-| <img src=".github/screens/03-milista.webp" alt="My list"><br>**My list,** also from Stremio | <img src=".github/screens/04-nuevos.webp" alt="New episodes"><br>**New episodes** of your shows |
+| <img src=".github/screens/03-milista.webp" alt="My list"><br>**My list,** what you save from any card | <img src=".github/screens/04-nuevos.webp" alt="New episodes"><br>**New episodes** of your shows |
 | <img src=".github/screens/05-novedades.webp" alt="New releases"><br>**New releases** | <img src=".github/screens/06-netflix.webp" alt="Netflix"><br>**A tab per service:** Netflix |
 | <img src=".github/screens/07-netflix-filas.webp" alt="Netflix rows"><br>**Rows of its own** in every service | <img src=".github/screens/08-anime.webp" alt="Anime"><br>**Anime** (Crunchyroll) |
 | <img src=".github/screens/09-anime-filas.webp" alt="Anime rows"><br>**Continue watching** in every service | <img src=".github/screens/10-menu.webp" alt="Menu"><br>**The menu:** search, shows, movies, apps and settings |

@@ -476,6 +476,27 @@ final class Streams {
         }
     }
 
+    /**
+     * Out of "Continue watching", as Stremio's own ✕ does: the place in it back to 0 in your library (so on Stremio and
+     * your phone too). Watched counts and the library stay. Call off the UI thread.
+     */
+    static void forget(String id) {
+        String key = Config.STREMIO_KEY.trim();
+        if (key.isEmpty()) return;
+        try {
+            JSONObject item = libraryItem(key, id);
+            JSONObject st = item == null ? null : item.optJSONObject("state");
+            if (st == null) return;
+            st.put("timeOffset", 0);
+            item.put("_mtime", java.time.Instant.now().toString());
+            JSONObject res = post("https://api.strem.io/api/datastorePut", new JSONObject().put("authKey", key)
+                    .put("collection", "libraryItem").put("changes", new JSONArray().put(item)));
+            if (res.has("error")) throw new IOException(res.getJSONObject("error").optString("message"));
+        } catch (Exception e) {
+            AppLog.w("continue watching: " + e.getMessage());
+        }
+    }
+
     /** A show's details from Stremio: Cinemeta's for IMDb ids, the Kitsu add-on's for anime ("kitsu:46043"). */
     static JSONObject meta(String id) throws Exception {
         String base = id.startsWith("kitsu:") ? "https://anime-kitsu.strem.fun" : "https://v3-cinemeta.strem.io";

@@ -167,6 +167,13 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
     }
     private final Path iconPath = new Path();
     private Paint navOn, navOff, navFocus, rowTitle, rowPeek, cardTitle, wideTitle, kindLabel, badge, weatherText, button, peekTitle;
+    private Paint menuHead, menuOn, menuOff;
+    /** The menu a long press on OK opens (a title's or an app's), over everything; null title = closed. */
+    private String menuTitle;
+    private final List<String> menuLabels = new ArrayList<>();
+    private final List<Runnable> menuActions = new ArrayList<>();
+    private int menuFocus;
+    private boolean menuOk;
     private TextPaint meta, overview, billTitle, billMeta, billOverview, nameUnder, pill;
     private final RectF r1 = new RectF(), r2 = new RectF(), logoRect = new RectF();
     private final Paint whiteLogo = new Paint(Paint.FILTER_BITMAP_FLAG);
@@ -475,6 +482,7 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
 
     boolean onKey(KeyEvent e) {
         if (onVideoPage() && detail.full) return fullKey(e);
+        if (menuTitle != null) return menuKey(e);
         if (sideOpen) return sideKey(e);
         boolean down = e.getAction() == KeyEvent.ACTION_DOWN;
         switch (e.getKeyCode()) {
@@ -485,7 +493,7 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
             case KeyEvent.KEYCODE_DPAD_CENTER:
             case KeyEvent.KEYCODE_ENTER:
             case KeyEvent.KEYCODE_NUMPAD_ENTER:
-                // Opens on release, and only if the press happened here; held: the app menu (move, remove, add).
+                // Opens on release, and only if the press happened here; held: its menu (My list, Continue watching; an app's).
                 if (down) {
                     if (e.getRepeatCount() == 0) okDown = true;
                     else if (okDown && e.getRepeatCount() >= 1) okLong = true;
@@ -1321,19 +1329,13 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
         if (on) c.drawRoundRect(r, rad, rad, ring);
     }
 
-    // MARK: - Editing your apps (long press OK on an app)
+    // MARK: - The menu of a long press on OK: a title's (My list, Continue watching) or an app's (move, remove, add)
 
     private boolean editMenu() {
         Card c = focused();
         Recs.Pick held = focusRow == -1 ? featured : c != null ? c.pick : null;
         if (held != null && (focusRow == -1 || c.pick != null)) {
-            // A title held: in or out of My list.
-            boolean in = recs.toggleFavorite(held);
-            Toast.makeText(getContext(), in ? Ui.t("Agregado a Mi lista",
-                    "Added to My list",
-                    "Adicionado à Minha lista") : Ui.t("Quitado de Mi lista", "Removed from My list", "Removido da Minha lista"),
-                    Toast.LENGTH_SHORT).show();
-            click.open();
+            titleMenu(held);
             return true;
         }
         if (c == null || c.app == null || c.app.kind != HomeApps.APP || c.app.pkg == null) return false;
@@ -1371,13 +1373,107 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
                 reloadApps();
             });
         }
+        openMenu(it.label, labels, actions);
+        return true;
+    }
+
+    private void titleMenu(final Recs.Pick p) {
+        final Context ctx = getContext();
+        List<String> labels = new ArrayList<>();
+        List<Runnable> actions = new ArrayList<>();
+        labels.add(p.resuming ? Ui.t("Reanudar", "Resume", "Continuar") : Ui.t("Reproducir", "Play", "Assistir"));
+        actions.add(this::activate);
+        boolean listed = recs.isFavorite(p);
+        labels.add(listed ? Ui.t("Quitar de Mi lista", "Remove from My list", "Tirar da Minha lista")
+                : Ui.t("Agregar a Mi lista", "Add to My list", "Adicionar à Minha lista"));
+        actions.add(() -> {
+            boolean in = recs.toggleFavorite(p);
+            Toast.makeText(ctx, in ? Ui.t("Agregado a Mi lista", "Added to My list", "Adicionado à Minha lista")
+                    : Ui.t("Quitado de Mi lista", "Removed from My list", "Removido da Minha lista"), Toast.LENGTH_SHORT).show();
+        });
+        if (p.resuming) {
+            labels.add(Ui.t("Quitar de Continuar viendo", "Remove from Continue watching", "Tirar de Continuar assistindo"));
+            actions.add(() -> {
+                recs.forgetResume(p);
+                rebuild(true);
+                changed(0, 0);
+                Toast.makeText(ctx, Ui.t("Quitado de Continuar viendo", "Removed from Continue watching",
+                        "Removido de Continuar assistindo"), Toast.LENGTH_SHORT).show();
+            });
+        }
+        openMenu(p.title, labels, actions);
+    }
+
+    private void openMenu(String title, List<String> labels, List<Runnable> actions) {
         labels.add(Ui.t("Cancelar", "Cancel", "Cancelar"));
         actions.add(() -> {});
-        new android.app.AlertDialog.Builder(activity, android.R.style.Theme_DeviceDefault_Dialog_Alert)
-                .setTitle(it.label)
-                .setItems(labels.toArray(new String[0]), (d, which) -> actions.get(which).run())
-                .show();
+        menuTitle = title == null ? "" : title;
+        menuLabels.clear();
+        menuLabels.addAll(labels);
+        menuActions.clear();
+        menuActions.addAll(actions);
+        menuFocus = 0;
+        menuOk = false;
+        click.open();
+        screen.invalidate();
+    }
+
+    /** ↑ ↓ through the menu, OK (on release) does it, Back closes it. */
+    private boolean menuKey(KeyEvent e) {
+        boolean down = e.getAction() == KeyEvent.ACTION_DOWN;
+        switch (e.getKeyCode()) {
+            case KeyEvent.KEYCODE_DPAD_UP:
+                if (down && menuFocus > 0) menuFocus--;
+                break;
+            case KeyEvent.KEYCODE_DPAD_DOWN:
+                if (down && menuFocus < menuLabels.size() - 1) menuFocus++;
+                break;
+            case KeyEvent.KEYCODE_DPAD_CENTER:
+            case KeyEvent.KEYCODE_ENTER:
+            case KeyEvent.KEYCODE_NUMPAD_ENTER:
+                if (down) {
+                    if (e.getRepeatCount() == 0) menuOk = true;
+                } else if (menuOk) {
+                    Runnable action = menuActions.get(menuFocus);
+                    menuTitle = null;
+                    action.run();
+                }
+                break;
+            case KeyEvent.KEYCODE_BACK:
+                if (!down) menuTitle = null;
+                break;
+            default:
+                break;
+        }
+        screen.invalidate();
         return true;
+    }
+
+    /** The menu: a dark card in the middle over a shade, its choices in pills (the focused one white). */
+    private void drawMenu(Canvas c) {
+        if (menuTitle == null) return;
+        fill.setShader(null);
+        fill.setColor(0xB3000000);
+        c.drawRect(0, 0, w, h, fill);
+        float rowH = 72 * k, gap = 8 * k, pad = 28 * k, cw = 680 * k, head = 76 * k;
+        float ch = pad + head + menuLabels.size() * (rowH + gap) - gap + pad;
+        float left = (w - cw) / 2, top = (h - ch) / 2;
+        r1.set(left, top, left + cw, top + ch);
+        fill.setColor(0xFF161618);
+        c.drawRoundRect(r1, 32 * k, 32 * k, fill);
+        String t = TextUtils.ellipsize(menuTitle, new TextPaint(menuHead), cw - 2 * pad - 24 * k, TextUtils.TruncateAt.END).toString();
+        c.drawText(t, left + pad + 24 * k, top + pad + 46 * k, menuHead);
+        for (int i = 0; i < menuLabels.size(); i++) {
+            float y = top + pad + head + i * (rowH + gap);
+            r1.set(left + pad, y, left + cw - pad, y + rowH);
+            boolean on = i == menuFocus;
+            if (on) {
+                fill.setColor(0xFFFFFFFF);
+                c.drawRoundRect(r1, rowH / 2, rowH / 2, fill);
+            }
+            Paint tp = on ? menuOn : menuOff;
+            c.drawText(menuLabels.get(i), r1.left + 24 * k, r1.centerY() + Ui.halfCap(tp), tp);
+        }
     }
 
     private void moveShelfApp(int dx) {
@@ -1739,6 +1835,9 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
         navOn = Ui.text(Ui.semibold, 24 * k, 0xFFFFFFFF);
         navOff = Ui.text(Ui.semibold, 24 * k, 0xFFB4B4BC);
         navFocus = Ui.text(Ui.semibold, 24 * k, 0xFF000000);
+        menuHead = Ui.text(Ui.displaySemibold, 34 * k, 0xFFFFFFFF);
+        menuOn = Ui.text(Ui.semibold, 28 * k, 0xFF000000);
+        menuOff = Ui.text(Ui.semibold, 28 * k, 0xFFE4E4E7);
         rowTitle = Ui.text(Ui.semibold, 30 * k, 0xFFFFFFFF);
         rowPeek = Ui.text(Ui.semibold, 28 * k, 0xFFA1A1AA);
         cardTitle = Ui.text(Ui.semibold, 21 * k, 0xFFFFFFFF);
@@ -1817,6 +1916,7 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
                 if (detail != null) drawDetail(c);   // fading in over the home screen
             }
             drawFinding(c);
+            drawMenu(c);
         }
     }
 

@@ -23,7 +23,8 @@ Un destacado con tráiler, filas de recomendaciones de TMDB y de lo que ves en S
 - **Sin anuncios.** Ni filas patrocinadas, ni banners, ni promos que se reproducen solas.
 - **Un destacado con tráiler.** El título enfocado se agranda a 16:9 y reproduce su tráiler adentro, en español latino si existe.
 - **Una pestaña por servicio:** Para ti, Netflix, Disney+, Prime Video, Paramount+, Crunchyroll y Stremio, cada una con sus propias filas.
-- **Continuar viendo, Mi lista y Nuevos episodios** desde tu cuenta de Stremio, y recomendaciones según lo que ves.
+- **Continuar viendo y Nuevos episodios** desde tu cuenta de Stremio, y recomendaciones según lo que ves.
+- **Mantén OK en una tarjeta** para su menú: reproducir, agregar o quitar de Mi lista, quitar de Continuar viendo (también en Stremio). En una app: moverla o quitarla de la fila.
 - **Una pantalla por serie** con reanudar, temporadas, capítulos y próximos estrenos.
 - **Un reproductor propio** para los títulos de Stremio, con audio, subtítulos y versión a elegir, y tu avance sincronizado con Stremio (lo que ves aquí aparece igual en Stremio y en tu teléfono).
 - **Abre cada título en su app:** Netflix, Disney+ y Prime Video abren directo en la película o serie, Stremio en el capítulo.
@@ -37,7 +38,7 @@ Toda la app (home, reproductor, búsqueda y ajustes) está en español, inglés 
 | | |
 |---|---|
 | <img src=".github/screens/01-inicio.webp" alt="Inicio"><br>**Para ti:** el destacado, con su tráiler | <img src=".github/screens/02-continuar.webp" alt="Continuar viendo"><br>**Continuar viendo,** desde tu cuenta de Stremio |
-| <img src=".github/screens/03-milista.webp" alt="Mi lista"><br>**Mi lista,** también de Stremio | <img src=".github/screens/04-nuevos.webp" alt="Nuevos"><br>**Nuevos episodios** de tus series |
+| <img src=".github/screens/03-milista.webp" alt="Mi lista"><br>**Mi lista,** lo que guardas desde cualquier tarjeta | <img src=".github/screens/04-nuevos.webp" alt="Nuevos"><br>**Nuevos episodios** de tus series |
 | <img src=".github/screens/05-novedades.webp" alt="Novedades"><br>**Novedades:** los estrenos | <img src=".github/screens/06-netflix.webp" alt="Netflix"><br>**Una pestaña por servicio:** Netflix |
 | <img src=".github/screens/07-netflix-filas.webp" alt="Filas de Netflix"><br>**Filas propias** en cada servicio | <img src=".github/screens/08-anime.webp" alt="Anime"><br>**Anime** (Crunchyroll) |
 | <img src=".github/screens/09-anime-filas.webp" alt="Filas de anime"><br>**Continuar viendo** en cada servicio | <img src=".github/screens/10-menu.webp" alt="Menú"><br>**El menú:** buscar, series, películas, apps y ajustes |

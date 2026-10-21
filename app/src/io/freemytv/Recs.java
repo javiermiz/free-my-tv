@@ -259,6 +259,29 @@ final class Recs {
 
     private static final int RESUME_MAX = 12;
 
+    /** Out of Continue watching: here at once, on Stremio in the background (see Streams.forget). */
+    void forgetResume(Pick p) {
+        String prefix = "stremio:///detail/";
+        if (p.link == null || !p.link.startsWith(prefix)) return;
+        String[] parts = p.link.substring(prefix.length()).split("/");   // "series/tt123/tt123:1:2"
+        if (parts.length < 2) return;
+        List<Pick> left = new ArrayList<>();
+        JSONArray saved = new JSONArray();
+        try {
+            for (Pick r : resumes) {
+                if (key(r).equals(key(p))) continue;
+                left.add(r);
+                saved.put(json(r));
+            }
+        } catch (Exception e) {
+            return;
+        }
+        resumes = left;
+        cache.edit().putString("resumes", saved.toString()).apply();
+        resumeCheckedAt = System.currentTimeMillis();   // not read back before Stremio has it
+        io.execute(() -> Streams.forget(parts[1]));
+    }
+
     /** Stremio's library (with the account key): the titles not finished, watched most recently first. Every 2 min. */
     private void refreshResume() {
         final String key = Config.STREMIO_KEY.trim();

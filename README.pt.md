@@ -23,7 +23,8 @@ Um destaque com trailer, fileiras de sugestões do TMDB e do que você assiste n
 - **Sem anúncios.** Nada de fileiras patrocinadas, banners ou promos que tocam sozinhas.
 - **Um destaque com trailer.** O título em foco cresce para 16:9 e toca o trailer dentro do card, no seu idioma quando existe.
 - **Uma aba por serviço:** Para você, Netflix, Disney+, Prime Video, Paramount+, Crunchyroll e Stremio, cada uma com suas fileiras.
-- **Continuar assistindo, Minha lista e Novos episódios** da sua conta do Stremio, e sugestões pelo que você assiste.
+- **Continuar assistindo e Novos episódios** da sua conta do Stremio, e sugestões pelo que você assiste.
+- **Segure OK num card** para o menu dele: assistir, adicionar ou tirar da Minha lista, tirar de Continuar assistindo (no Stremio também). Num app: mover ou tirar da fileira.
 - **Uma página por série** com retomar, temporadas, episódios e próximas estreias.
 - **Um player próprio** para os títulos do Stremio, com áudio, legendas e versão para escolher, e o seu ponto sincronizado com o Stremio (o que você assiste aqui aparece igual no Stremio e no celular).
 - **Abre cada título no seu app:** Netflix, Disney+ e Prime Video abrem direto no filme ou na série, o Stremio no episódio.
@@ -37,7 +38,7 @@ O app inteiro (tela inicial, player, busca e ajustes) está em espanhol, inglês
 | | |
 |---|---|
 | <img src=".github/screens/01-inicio.webp" alt="Início"><br>**Para você:** o destaque, com o trailer | <img src=".github/screens/02-continuar.webp" alt="Continuar assistindo"><br>**Continuar assistindo,** da sua conta do Stremio |
-| <img src=".github/screens/03-milista.webp" alt="Minha lista"><br>**Minha lista,** também do Stremio | <img src=".github/screens/04-nuevos.webp" alt="Novos episódios"><br>**Novos episódios** das suas séries |
+| <img src=".github/screens/03-milista.webp" alt="Minha lista"><br>**Minha lista,** o que você guarda de qualquer card | <img src=".github/screens/04-nuevos.webp" alt="Novos episódios"><br>**Novos episódios** das suas séries |
 | <img src=".github/screens/05-novedades.webp" alt="Novidades"><br>**Novidades:** as estreias | <img src=".github/screens/06-netflix.webp" alt="Netflix"><br>**Uma aba por serviço:** Netflix |
 | <img src=".github/screens/07-netflix-filas.webp" alt="Fileiras da Netflix"><br>**Fileiras próprias** em cada serviço | <img src=".github/screens/08-anime.webp" alt="Anime"><br>**Anime** (Crunchyroll) |
 | <img src=".github/screens/09-anime-filas.webp" alt="Fileiras de anime"><br>**Continuar assistindo** em cada serviço | <img src=".github/screens/10-menu.webp" alt="Menu"><br>**O menu:** busca, séries, filmes, apps e ajustes |

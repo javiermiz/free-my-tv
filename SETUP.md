@@ -33,7 +33,7 @@ Corre `./build.sh` una vez: crea `config.properties` a partir de `config.example
 |---|---|---|
 | `tmdb_key` | Recomendaciones, imágenes, logos, tráilers | Gratis: [themoviedb.org](https://www.themoviedb.org/settings/api) → Configuración → API. Sirve el "API Read Access Token" o la "API Key". |
 | `tmdb_region` | En qué servicio está cada título | Tu país en dos letras, p. ej. `MX`. |
-| `latitude`, `longitude`, `city` | Clima y modo noche | Las coordenadas de tu ciudad en grados decimales (p. ej. Cancún: `21.1619`, `-86.8515`). |
+| `latitude`, `longitude`, `city` | Clima y modo noche | Las coordenadas de tu ciudad en grados decimales (p. ej. Ciudad de México: `19.4326`, `-99.1332`). |
 | `language` | Títulos y textos | `es` para español. |
 | `temperature` | Grados | `C` o `F`. |
 | `stremio_key` | "Continuar viendo" y recomendaciones según lo que ves | Ver abajo. Opcional. |

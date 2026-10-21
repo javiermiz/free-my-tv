@@ -11,11 +11,26 @@ Open source. Built with Claude Code. One button to undo.
 
 [**freemytv.io**](https://freemytv.io) · [Install](#install) · [Any TV](#any-tv) · [Make it yours](#make-it-yours)
 
-<img src=".github/preview.webp" width="880" alt="The Free My TV home screen: a glass shelf of apps, trending picks, and a drawer with the weather and crypto prices">
+<img src=".github/screens/hero.webp" width="880" alt="Free My TV, esta versión: un home al estilo de las apps de streaming, con un destacado con tráiler, pestañas por servicio y el reproductor propio">
 
 </div>
 
 > **Esta versión:** instrucciones de instalación y configuración en español en [SETUP.md](SETUP.md).
+
+## Esta versión
+
+Un home al estilo de las apps de streaming: un destacado con tráiler, filas de recomendaciones (de TMDB y de lo que ves en Stremio), una pestaña por servicio, una pantalla por serie y un reproductor propio para Stremio.
+
+| | |
+|---|---|
+| <img src=".github/screens/01-inicio.webp" alt="Inicio"><br>**Para ti:** el destacado, con su tráiler | <img src=".github/screens/02-continuar.webp" alt="Continuar viendo"><br>**Continuar viendo,** desde tu cuenta de Stremio |
+| <img src=".github/screens/03-milista.webp" alt="Mi lista"><br>**Mi lista,** también de Stremio | <img src=".github/screens/04-nuevos.webp" alt="Nuevos"><br>**Nuevos episodios** de tus series |
+| <img src=".github/screens/05-novedades.webp" alt="Novedades"><br>**Novedades:** los estrenos | <img src=".github/screens/06-netflix.webp" alt="Netflix"><br>**Una pestaña por servicio:** Netflix |
+| <img src=".github/screens/07-netflix-filas.webp" alt="Filas de Netflix"><br>**Filas propias** en cada servicio | <img src=".github/screens/08-anime.webp" alt="Anime"><br>**Anime** (Crunchyroll) |
+| <img src=".github/screens/09-anime-filas.webp" alt="Filas de anime"><br>**Continuar viendo** en cada servicio | <img src=".github/screens/10-menu.webp" alt="Menú"><br>**El menú:** buscar, series, películas, apps y ajustes |
+| <img src=".github/screens/11-apps.webp" alt="Apps"><br>**Todas tus apps,** con buscador | <img src=".github/screens/13-buscar.webp" alt="Buscar"><br>**Buscar** |
+| <img src=".github/screens/14-serie.webp" alt="Serie"><br>**Una pantalla por serie:** reanudar, temporadas y próximos capítulos | <img src=".github/screens/15-controles.webp" alt="Reproductor"><br>**El reproductor propio,** con tu avance sincronizado a Stremio |
+| <img src=".github/screens/16-audio-subs.webp" alt="Audio y subtítulos"><br>**Audio, subtítulos y versión** | |
 
 ## What you get
 
@@ -37,7 +52,7 @@ About ten minutes. You need a Google TV or Android TV (Android 12 or newer) and 
 1. **On the TV**, turn on developer mode: Settings → System → About → press *Android TV OS build* 7 times. Then Settings → System → Developer options → turn on **USB debugging**. Write down the TV's IP address (Settings → Network & Internet).
 2. **On your computer**, get the code:
    ```bash
-   git clone https://github.com/simbasjungles/free-my-tv && cd free-my-tv
+   git clone https://github.com/javiermiz/free-my-tv && cd free-my-tv
    ```
 3. **Open [Claude Code](https://claude.com/claude-code) in that folder** and say:
    > Install Free My TV on my TV at 192.168.1.50. I live in Lisbon.

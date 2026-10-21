@@ -43,8 +43,27 @@ final class Streams {
     /** 0 Latin American audio, 1 no Spanish audio (original), 2 Spain's Spanish audio. */
     static int audio(String text) {
         String t = text.toLowerCase(Locale.ROOT);
+        // A long row of flags lists the subtitles too ("🇬🇧 / 🇯🇵 / 🇪🇸 / 🇰🇷 …"): only words count then.
+        if (flags(t) >= 4) t = FLAG.matcher(t).replaceAll("");
         if (LATAM.matcher(t).find()) return 0;
         return SPAIN.matcher(t).find() ? 2 : 1;
+    }
+
+    /** A flag emoji: two regional indicator letters (U+1F1E6…U+1F1FF). */
+    private static final Pattern FLAG = Pattern.compile("[\\x{1F1E6}-\\x{1F1FF}]{2}");
+
+    private static final Pattern SPANISH_FLAG = Pattern.compile("🇪🇸|🇲🇽|🇦🇷|🇨🇴|🇨🇱|🇵🇪|🇻🇪|\\bmulti-?subs?\\b");
+
+    /** A row of 4+ flags with a Spanish-speaking one (or "multi-sub"): the file carries Spanish subtitles. */
+    static boolean embeddedSubs(String t) {
+        String l = t.toLowerCase(Locale.ROOT);
+        return (flags(l) >= 4 && SPANISH_FLAG.matcher(l).find()) || l.matches("(?s).*\\bmulti-?subs?\\b.*");
+    }
+
+    private static int flags(String t) {
+        int n = 0;
+        for (java.util.regex.Matcher m = FLAG.matcher(t); m.find(); ) n++;
+        return n;
     }
 
     /** A subtitle language code in Spanish ("spa", "spn", "es", "es-419", "Spanish"…). */
@@ -63,6 +82,31 @@ final class Streams {
     static final class Stream {
         String url;
         boolean spanishAudio, heavy;
+        int kind;                           // audio(): 0 Latin American, 1 original, 2 Spain's
+        boolean cached;                     // already in your debrid account: plays at once ("[TB+]", "⚡")
+        boolean embeddedSubs;               // Spanish subtitles inside the file (a Spanish flag in a long row of them)
+        String quality = "", size = "";     // "1080p", "2.28 GB" (from its name, for the player's Version list)
+    }
+
+    private static final Pattern CACHED = Pattern.compile("\\[(?:tb|rd|ad|pm|dl|ed|oc|pkp|trb)\\+\\]|⚡|\\binstant\\b");
+
+    static boolean cached(String t) {
+        return CACHED.matcher(t.toLowerCase(Locale.ROOT)).find();
+    }
+
+    private static final Pattern QUALITY = Pattern.compile("2160p|\\b4k\\b|1080p|720p|576p|480p");
+    private static final Pattern SIZE = Pattern.compile("💾\\s*([\\d.,]+\\s*[GM]B)");
+
+    private static String quality(String t) {
+        java.util.regex.Matcher m = QUALITY.matcher(t.toLowerCase(Locale.ROOT));
+        if (!m.find()) return "";
+        String q = m.group();
+        return q.equals("2160p") || q.equals("4k") ? "4K" : q;
+    }
+
+    private static String size(String t) {
+        java.util.regex.Matcher m = SIZE.matcher(t);
+        return m.find() ? m.group(1) : "";
     }
 
     /** What to play: the streams to try in order (the next when one fails or is only a notice), and where you were. */
@@ -71,6 +115,7 @@ final class Streams {
         ArrayList<Stream> streams = new ArrayList<>();
         String subtitles;                   // .srt in Spanish (Latin American first), downloaded: its path, or null
         long startAt;                       // ms: where you left this movie or episode, 0 = from the start
+        int latino, spain;                  // how many Latin American / Spain's Spanish streams were found
 
         Choice copy() {
             Choice c = new Choice();
@@ -80,6 +125,8 @@ final class Streams {
             c.streams = new ArrayList<>(streams);
             c.subtitles = subtitles;
             c.startAt = startAt;
+            c.latino = latino;
+            c.spain = spain;
             return c;
         }
     }
@@ -151,7 +198,56 @@ final class Streams {
         return a;
     }
 
+    /** What the home screen shows on a card: in your debrid already, which Spanish, Spanish subtitles. */
+    static final class Badge {
+        boolean cached, latino, spain, subs, none;
+    }
+
+    private static final long BADGES_FOR = 6 * 3600_000L;
+    private static final java.util.Map<String, Badge> badges = new java.util.HashMap<>();
+    private static final java.util.Map<String, Long> badgesAt = new java.util.HashMap<>();
+
+    /** The badge if known in the last 6 h (or from a lookup for playing), else null. */
+    static Badge knownBadge(String detailLink) {
+        synchronized (found) {
+            Long at = badgesAt.get(detailLink);
+            if (at != null && System.currentTimeMillis() - at < BADGES_FOR) return badges.get(detailLink);
+            Long f = foundAt.get(detailLink);
+            if (f != null && System.currentTimeMillis() - f < STREAMS_FOR) return badge(found.get(detailLink));
+        }
+        return null;
+    }
+
+    /**
+     * Asks the add-ons what they have for a title without opening anything (no link followed, so a debrid service
+     * never starts downloading a title you only went past; no subtitles downloaded). Off the UI thread.
+     */
+    static Badge peek(String detailLink) {
+        Badge known = knownBadge(detailLink);
+        if (known != null) return known;
+        Badge b = badge(find(detailLink, null));
+        synchronized (found) {
+            badges.put(detailLink, b);
+            badgesAt.put(detailLink, System.currentTimeMillis());
+        }
+        return b;
+    }
+
+    private static Badge badge(Choice c) {
+        Badge b = new Badge();
+        b.none = c == null || c.streams.isEmpty();
+        if (b.none) return b;
+        b.cached = c.streams.get(0).cached;   // the one that would play
+        b.latino = c.latino > 0;
+        b.spain = c.spain > 0;
+        b.subs = c.subtitles != null;
+        for (Stream st : c.streams) b.subs |= st.embeddedSubs;
+        return b;
+    }
+
+    /** cacheDir null = only looking (peek): nothing followed, nothing downloaded. */
     private static Choice find(String detailLink, java.io.File cacheDir) {
+        final boolean peek = cacheDir == null;
         String key = Config.STREMIO_KEY.trim();
         String prefix = "stremio:///detail/";
         if (key.isEmpty() || detailLink == null || !detailLink.startsWith(prefix)) return null;
@@ -196,6 +292,11 @@ final class Streams {
                     int a = audio(text);
                     st.spanishAudio = a != 1;
                     st.heavy = heavy(text);
+                    st.kind = a;
+                    st.quality = quality(text);
+                    st.size = size(text);
+                    st.cached = cached(text);
+                    st.embeddedSubs = a == 1 && embeddedSubs(text);
                     kinds.get(a).add(st);
                 }
             }
@@ -212,15 +313,17 @@ final class Streams {
                 kind.addAll(heavy);
             }
             String subsUrl = kinds.get(0).isEmpty() ? spanishSubs(subs) : null;
-            if (subsUrl != null) c.subtitles = download(subsUrl, new java.io.File(cacheDir, "subtitles.srt"));
+            if (subsUrl != null) c.subtitles = peek ? subsUrl : download(subsUrl, new java.io.File(cacheDir, "subtitles.srt"));
+            c.latino = kinds.get(0).size();
+            c.spain = kinds.get(2).size();
             c.streams.addAll(kinds.get(0));
             if (c.subtitles != null) c.streams.addAll(kinds.get(1));
             c.streams.addAll(kinds.get(2));
             if (c.subtitles == null) c.streams.addAll(kinds.get(1));   // nothing in Spanish: the original anyway
             c.startAt = startAt(await(saved), c.video);
             // The first streams' links, followed ahead (add-on → debrid → file): the player goes straight to the file.
-            for (int i = 0; i < Math.min(2, c.streams.size()); i++) c.streams.get(i).url = resolve(c.streams.get(i).url);
-            AppLog.w("streams for " + c.video + ": " + kinds.get(0).size() + " latino, " + kinds.get(1).size() + " original, "
+            for (int i = 0; !peek && i < Math.min(2, c.streams.size()); i++) c.streams.get(i).url = resolve(c.streams.get(i).url);
+            AppLog.w("streams for " + c.video + (peek ? " (looking only)" : "") + ": " + kinds.get(0).size() + " latino, " + kinds.get(1).size() + " original, "
                     + kinds.get(2).size() + " Spain" + (c.subtitles != null ? ", Spanish subtitles" : "") + ", from " + c.startAt / 1000 + " s");
             return c.streams.isEmpty() ? null : c;
         } catch (Exception e) {
@@ -326,16 +429,62 @@ final class Streams {
             if (!c.video.equals(st.optString("video_id"))) st.put("timeWatched", 0);
             st.put("video_id", c.video).put("lastWatched", now).put("duration", duration);
             String[] v = c.video.split(":");
-            if (v.length >= 3) st.put("season", Integer.parseInt(v[v.length - 2])).put("episode", Integer.parseInt(v[v.length - 1]));
+            boolean tt = c.id.startsWith("tt");   // Kitsu's ("kitsu:46043:13") have no season: Stremio leaves both at 0
+            if (tt && v.length >= 3) st.put("season", Integer.parseInt(v[v.length - 2])).put("episode", Integer.parseInt(v[v.length - 1]));
             boolean done = position > duration * 0.92;
             st.put("timeOffset", done ? 0 : position);
             if (done) st.put("flaggedWatched", 1).put("timesWatched", st.optInt("timesWatched") + 1);
+            // An episode finished: on to the next one, as Stremio does (offset 1 keeps the show in Continue watching).
+            String next = done && "series".equals(c.type) ? nextEpisode(c.id, c.video) : null;
+            if (next != null) {
+                String[] n = next.split(":");
+                st.put("video_id", next).put("timeOffset", 1).put("timeWatched", 0);
+                if (tt && n.length >= 3) st.put("season", Integer.parseInt(n[n.length - 2])).put("episode", Integer.parseInt(n[n.length - 1]));
+            }
             item.put("_mtime", now);
             JSONObject res = post("https://api.strem.io/api/datastorePut", new JSONObject().put("authKey", key)
                     .put("collection", "libraryItem").put("changes", new JSONArray().put(item)));
             if (res.has("error")) throw new IOException(res.getJSONObject("error").optString("message"));
         } catch (Exception e) {
             AppLog.w("saving your place: " + e.getMessage());
+        }
+    }
+
+    /** A show's details from Stremio: Cinemeta's for IMDb ids, the Kitsu add-on's for anime ("kitsu:46043"). */
+    static JSONObject meta(String id) throws Exception {
+        String base = id.startsWith("kitsu:") ? "https://anime-kitsu.strem.fun" : "https://v3-cinemeta.strem.io";
+        return get(base + "/meta/series/" + id + ".json").getJSONObject("meta");
+    }
+
+    /** The episode after `video` ("tt1:2:6", "kitsu:46043:12"), by season and number; null after the last one. */
+    static String nextEpisode(String id, String video) {
+        try {
+            JSONArray videos = meta(id).optJSONArray("videos");
+            int season = -1, episode = -1;
+            for (int i = 0; videos != null && i < videos.length(); i++) {
+                JSONObject o = videos.getJSONObject(i);
+                if (video.equals(o.optString("id"))) {
+                    season = o.optInt("season");
+                    episode = o.optInt("episode", o.optInt("number"));
+                }
+            }
+            if (season < 0) return null;
+            String best = null;
+            int bs = 0, be = 0;
+            for (int i = 0; videos != null && i < videos.length(); i++) {
+                JSONObject o = videos.getJSONObject(i);
+                int vs = o.optInt("season"), ve = o.optInt("episode", o.optInt("number"));
+                if (vs <= 0 || (vs < season || vs == season && ve <= episode)) continue;   // specials, or already behind
+                if (best == null || vs < bs || vs == bs && ve < be) {
+                    best = o.optString("id");
+                    bs = vs;
+                    be = ve;
+                }
+            }
+            return best == null || best.isEmpty() ? null : best;
+        } catch (Exception e) {
+            AppLog.w("next episode: " + e.getMessage());
+            return null;
         }
     }
 
@@ -418,6 +567,14 @@ final class Streams {
         check(audio("Torrentio 1080p\nThe Movie 2024 🇲🇽 🇬🇧") == 0);
         check(audio("[RD+] 4K Dual Latino-Inglés") == 0);
         check(audio("1080p WEB-DL\n👤 120 💾 2 GB") == 1);
+        check(audio("1080p WEB H264-KBBQ\n🇬🇧 / 🇯🇵 / 🇮🇹 / 🇵🇹 / 🇪🇸 / 🇰🇷 / 🇫🇷") == 1);   // subtitles, not the audio
+        check(audio("1080p Dual Latino 🇲🇽 / 🇬🇧 / 🇯🇵 / 🇰🇷") == 0);
+        check(audio("1080p 🇪🇸 / 🇬🇧") == 2);
+        check(quality("A S01E07 1080p WEB H264").equals("1080p") && quality("Movie 2160p HDR").equals("4K") && quality("XviD").isEmpty());
+        check(size("👤 38 💾 2.28 GB ⚙️ EZTV").equals("2.28 GB") && size("no size").isEmpty());
+        check(embeddedSubs("1080p WEB H264-KBBQ\n🇬🇧 / 🇯🇵 / 🇮🇹 / 🇵🇹 / 🇪🇸 / 🇰🇷") && !embeddedSubs("1080p 🇬🇧 / 🇯🇵 / 🇰🇷 / 🇫🇷")
+                && !embeddedSubs("1080p 🇪🇸") && embeddedSubs("Show S01 1080p Multi-Sub"));
+        check(cached("[TB+] Torrentio\n1080p") && cached("[TB⚡] Comet") && !cached("[TB download] Torrentio") && !cached("Torrentio 1080p"));
         check(audio("Película 🇪🇸 Castellano") == 2);
         check(audio("Movie.2024.1080p.SPA.ENG") == 2);
         check(audio("Platinum Edition 1080p") == 1);   // "lat" only as a whole word

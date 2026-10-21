@@ -90,6 +90,26 @@
             </intent-filter>
         </activity>
 
+        <!-- Every app, input and setting, with a search box (the sidebar's Apps). -->
+        <activity
+            android:name=".AppsActivity"
+            android:process=":home"
+            android:exported="false"
+            android:screenOrientation="landscape"
+            android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenSize|screenLayout|smallestScreenSize|uiMode|density|fontScale|locale|layoutDirection"
+            android:windowSoftInputMode="adjustNothing|stateAlwaysHidden"
+            android:theme="@style/FreeMyTV.Home" />
+
+        <!-- Search by name (the sidebar's Search). -->
+        <activity
+            android:name=".SearchActivity"
+            android:process=":home"
+            android:exported="false"
+            android:screenOrientation="landscape"
+            android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenSize|screenLayout|smallestScreenSize|uiMode|density|fontScale|locale|layoutDirection"
+            android:windowSoftInputMode="adjustNothing|stateVisible"
+            android:theme="@style/FreeMyTV.Home" />
+
         <!-- Our own player for direct links (a debrid stream), over the home screen. -->
         <activity
             android:name=".PlayerActivity"

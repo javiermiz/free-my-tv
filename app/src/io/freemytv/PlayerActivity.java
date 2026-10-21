@@ -41,7 +41,8 @@ public class PlayerActivity extends Activity implements Playback.Listener {
 
     @Override public boolean dispatchKeyEvent(KeyEvent e) {
         if (e.getKeyCode() == KeyEvent.KEYCODE_BACK || e.getKeyCode() == KeyEvent.KEYCODE_ESCAPE) {
-            if (e.getAction() == KeyEvent.ACTION_DOWN) finish();
+            // The panel, the episodes or the next episode's card close first.
+            if (e.getAction() == KeyEvent.ACTION_DOWN && (playback == null || !playback.onBack())) finish();
             return true;
         }
         if (playback != null && playback.onKey(e)) return true;

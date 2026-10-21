@@ -15,6 +15,8 @@ Open source. Built with Claude Code. One button to undo.
 
 </div>
 
+> **Esta versión:** instrucciones de instalación y configuración en español en [SETUP.md](SETUP.md).
+
 ## What you get
 
 - **No ads.** No sponsored rows, banners or autoplaying promos. Not one.

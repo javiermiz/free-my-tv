@@ -36,7 +36,7 @@ import java.util.concurrent.Executors;
 /**
  * The home screen, laid out like today's streaming TV apps: a featured title on top, then rows of vertical posters.
  * Moving down brings a row to the top; the focused title is always first in its row, widened to 16:9, and after a
- * moment its trailer (YouTube, muted) plays inside it. Its details sit below the row. At the end: your apps, the
+ * moment its trailer (YouTube) plays inside it. Its details sit below the row. At the end: your apps, the
  * rest of the apps, and inputs and settings.
  *
  * Drawn by hand on one Canvas (in a 1920×1080 space, k = width / 1920); the trailer is a WebView underneath, showing
@@ -53,7 +53,7 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
     private static final int FEATURED_MAX = 6;
     private static final int DEFAULT_ACCENT = 0xFFF5A524;
     /** The sidebar's tabs (after Search): Home, Shows, Movies, Anime. */
-    private static final String[] TAB_KIND = {null, "tv", "movie", "anime"};
+    private static final String[] TAB_KIND = {null, "tv", "movie"};   // anime: the Anime platform on top
     /**
      * The platforms on top (the ones installed): Recs' service key, name, its color and a ground tinted with it, its
      * one-color logo on TMDB (a transparent PNG, drawn white, or dark on its white pill; "" = its name), then its
@@ -65,7 +65,8 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
         {"prime", "Prime Video", "00A8E1", "03090D", "/w7HfLNm9CWwRmAMU58udl2L7We7.png", "com.amazon.amazonvideo.livingroom"},
         {"max", "Max", "7B5CFF", "07051A", "/nmU0UMDJB3dRRQSTUqawzF2Od1a.png", "com.wbd.stream"},
         {"paramount", "Paramount+", "0064FF", "03061A", "/fi83B1oztoS47xxcemFdPMhIzK.png", "com.cbs.ott", "com.cbs.ca"},
-        {"crunchyroll", "Crunchyroll", "F47521", "0D0702", "/qqyXcZlJQKlRmAD1TCKV7mGLQlt.png", "com.crunchyroll.crunchyroid"},
+        // Anime: ALL the anime (from any app), with Crunchyroll's logo and colors; shown even without Crunchyroll.
+        {"anime", "Anime", "F47521", "0D0702", "/qqyXcZlJQKlRmAD1TCKV7mGLQlt.png", "com.crunchyroll.crunchyroid"},
         {"viki", "Viki", "4DB8FF", "040A10", "", "com.viki.android"},
         {"appletv", "Apple TV", "D4D4D8", "060606", "/bngHRFi794mnMq34gfVcm9nDxN1.png", "com.apple.atve.androidtv.appletv"},
         {"stremio", "Stremio", "9B7BD4", "08060D", "", "com.stremio.one"},
@@ -95,6 +96,7 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
         String title;
         final List<Card> cards = new ArrayList<>();
         boolean apps, shelf, others;
+        Recs.Row source;   // title rows: where more of it comes from
     }
 
     private final Activity activity;
@@ -243,7 +245,13 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
 
     // MARK: - Lifecycle (called by HomeActivity)
 
+    /** Chosen in Search (same process): opened when the home screen is back. */
+    static volatile Recs.Pick pendingOpen;
+
     void resume() {
+        final Recs.Pick chosen = pendingOpen;
+        pendingOpen = null;
+        if (chosen != null) handler.post(() -> openPick(chosen));
         if (running) return;
         running = true;
         recs.addListener(this);
@@ -311,6 +319,7 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
             }
         }
         rebuild(false);
+        if (!handler.hasCallbacks(badgesNow)) scheduleBadges();   // images loading notify often: don't keep pushing it back
         screen.invalidate();
     }
 
@@ -341,7 +350,6 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
     /** Rows for the current tab; rebuilt only when what they hold changed (`force`: always). */
     private void rebuild(boolean force) {
         String kind = TAB_KIND[tab];
-        boolean all = platform == null;
         List<Row> out = new ArrayList<>();
         List<Recs.Pick> going = new ArrayList<>();
         for (Recs.Pick p : recs.resumes()) if (fits(p, kind)) going.add(p);
@@ -349,35 +357,36 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
             Row r = row(out, es("Continuar viendo", "Continue watching"));
             for (Recs.Pick p : going) r.cards.add(card(p));
         }
-        if (tab == 0 && all) appRow(out, es("Tus apps", "Your apps"), shelf).shelf = true;   // near the top: picking an app is quick
+        List<Recs.Pick> listed = new ArrayList<>();
+        for (Recs.Pick p : recs.favorites()) if (fits(p, kind)) listed.add(p);
+        if (!listed.isEmpty()) {
+            Row r = row(out, es("Mi lista", "My list"));
+            for (Recs.Pick p : listed) r.cards.add(card(p));
+        }
+        // What's new (new episodes of your shows, premieres) right under it, before everything else.
+        for (Recs.Row rr : recs.rows(platform)) if (rr.top) addRow(out, rr, kind);
         List<Recs.Pick> mine = new ArrayList<>();
         for (Recs.Pick p : recs.now("anime".equals(kind) ? null : kind)) if (!p.resuming && p.pkg != null && fits(p, kind)) mine.add(p);
+        // The banner is always something new for you: never a title you're in the middle of (that's Continue watching).
+        java.util.Set<String> watching = new java.util.HashSet<>();
+        for (Recs.Pick p : recs.resumes()) watching.add(Recs.key(p));
         featuredList.clear();
-        for (int i = 0; i < mine.size() && i < FEATURED_MAX; i++) featuredList.add(mine.get(i));
-        if (featuredList.isEmpty() && !going.isEmpty()) featuredList.add(going.get(0));
+        for (int i = 0; i < mine.size() && featuredList.size() < FEATURED_MAX; i++)
+            if (!watching.contains(Recs.key(mine.get(i)))) featuredList.add(mine.get(i));
         featuredIndex = featuredList.isEmpty() ? 0 : Math.min(featuredIndex, featuredList.size() - 1);
         featured = featuredList.isEmpty() ? null : featuredList.get(featuredIndex);
         if (!mine.isEmpty()) {
             Row r = row(out, es("Para ti", "For you"));
             for (Recs.Pick p : mine) r.cards.add(card(p));
         }
-        for (Recs.Row rr : recs.rows()) {
-            Row r = new Row();
-            r.title = rr.title;
-            for (Recs.Pick p : rr.picks) if (fits(p, kind)) r.cards.add(card(p));
-            if (rr.saga) markNext(r);
-            if (!r.cards.isEmpty()) out.add(r);
-        }
+        for (Recs.Row rr : recs.rows(platform)) if (!rr.top) addRow(out, rr, kind);   // a platform's own rows, or everyone's
         // Nothing picked for this tab or platform: the featured titles come from its rows.
         for (int i = 0; featuredList.isEmpty() && i < out.size(); i++) {
             for (Card c : out.get(i).cards) {
-                if (c.pick != null && !c.pick.resuming && c.pick.pkg != null && featuredList.size() < FEATURED_MAX) featuredList.add(c.pick);
+                if (c.pick != null && !c.pick.resuming && !watching.contains(Recs.key(c.pick)) && c.pick.pkg != null
+                        && featuredList.size() < FEATURED_MAX) featuredList.add(c.pick);
             }
             if (!featuredList.isEmpty()) featured = featuredList.get(featuredIndex = 0);
-        }
-        if (tab == 0 && all) {
-            appRow(out, es("Más apps", "More apps"), others).others = true;
-            appRow(out, es("Entradas y ajustes", "Inputs and settings"), extras);
         }
         StringBuilder sig = new StringBuilder(tab + "/" + platform);
         for (Row r : out) {
@@ -397,6 +406,15 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
         if (focusRow >= rows.size()) focusRow = rows.size() - 1;
     }
 
+    private void addRow(List<Row> out, Recs.Row rr, String kind) {
+        Row r = new Row();
+        r.title = rr.title;
+        r.source = rr;
+        for (Recs.Pick p : rr.picks) if (fits(p, kind)) r.cards.add(card(p));
+        if (rr.saga) markNext(r);
+        if (!r.cards.isEmpty()) out.add(r);
+    }
+
     /** A saga: after the last one you watched, the next is marked (nothing marked if you haven't started it). */
     private void markNext(Row r) {
         int last = -1;
@@ -407,15 +425,21 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
         for (int i = last + 1; last >= 0 && i < r.cards.size(); i++) {
             if (!recs.watched(r.cards.get(i).pick)) {
                 r.cards.get(i).pick.sagaNext = true;
+                if (!r.title.equals(sagaLogged.put(r.title, r.cards.get(i).pick.title)))
+                    AppLog.w("saga " + r.title + ": next is " + r.cards.get(i).pick.title);
                 return;
             }
         }
+        if (sagaLogged.put(r.title, "") == null) AppLog.w("saga " + r.title + ": " + (last < 0 ? "none watched yet" : "all watched"));
     }
+
+    private final java.util.Map<String, String> sagaLogged = new java.util.HashMap<>();   // logged once per saga
 
     /** In this tab (shows, movies, anime) and on the chosen platform (Stremio: what opens in it). */
     private boolean fits(Recs.Pick p, String kind) {
         if (kind != null && !("anime".equals(kind) ? p.anime : kind.equals(p.kind))) return false;
         if (platform == null) return true;
+        if (platform.equals("anime")) return p.anime;   // every anime, whichever app has it
         if (platform.equals("stremio")) return "stremio".equals(p.app);
         return platform.equals(p.app) || ("," + p.services + ",").contains("," + platform + ",");
     }
@@ -558,6 +582,7 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
             int n = r.cards.size();
             // Title rows go round (after the last, the first again); apps stop at the ends.
             int next = r.apps ? Math.max(0, Math.min(n - 1, focusCol[focusRow] + dx)) : n < 2 ? 0 : (focusCol[focusRow] + dx + n) % n;
+            if (r.source != null && next >= n - 6) recs.more(r.source);   // near its end (or short): the next page
             if (next == focusCol[focusRow]) return;
             focusCol[focusRow] = next;
             if (r.apps) {
@@ -576,6 +601,18 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
             focusRow++;
             changed(0, 1);
         }
+        if (dy != 0 && focusRow >= 0 && focusRow < rows.size()) {
+            Row now = rows.get(focusRow);
+            if (now.source != null && now.cards.size() < 12) recs.more(now.source);   // a short row fills up when you reach it
+        }
+        if (dy > 0) moreRowsIfNear();
+    }
+
+    /** Fewer than 5 title rows left below: more come (Recs stops after a while). */
+    private void moreRowsIfNear() {
+        int left = 0;
+        for (int i = focusRow + 1; i < rows.size(); i++) if (rows.get(i).source != null) left++;
+        if (left < 5) recs.moreRows(platform);
     }
 
     private void selectPlatform(int index) {
@@ -608,7 +645,7 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
                 try {
                     pm.getPackageInfo(s[i], 0);
                 } catch (android.content.pm.PackageManager.NameNotFoundException e) {
-                    continue;
+                    if (!s[0].equals("anime")) continue;   // a category, not an app
                 }
                 Platform p = new Platform();
                 p.key = s[0];
@@ -628,7 +665,7 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
 
     // MARK: - Sidebar: Search, the tabs, Settings
 
-    private static final int SIDE_ITEMS = 6;
+    private static final int SIDE_ITEMS = 6, SIDE_APPS = 4;   // anime is a platform on top now
 
     private String sideLabel(int i) {
         switch (i) {
@@ -636,7 +673,7 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
             case 1: return es("Inicio", "Home");
             case 2: return es("Series", "Shows");
             case 3: return es("Películas", "Movies");
-            case 4: return es("Anime", "Anime");
+            case SIDE_APPS: return "Apps";
             default: return es("Ajustes", "Settings");
         }
     }
@@ -678,7 +715,9 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
                 closeSide();
                 if (sideIndex == 0) {
                     // The TV's own search (Google TV's, with the voice too): it searches every app.
-                    startOutside(new android.content.Intent("android.search.action.GLOBAL_SEARCH"));
+                    startOutside(new android.content.Intent(activity, SearchActivity.class));   // by name, in all of TMDB
+                } else if (sideIndex == SIDE_APPS) {
+                    startOutside(new android.content.Intent(activity, AppsActivity.class));
                 } else if (sideIndex == SIDE_ITEMS - 1) {
                     startOutside(new android.content.Intent(android.provider.Settings.ACTION_SETTINGS));
                 } else {
@@ -746,7 +785,93 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
         }
         click.move();
         scheduleTrailer();
+        scheduleBadges();
         screen.invalidate();
+    }
+
+    // MARK: - Badges: in your debrid already, the Spanish it has, Spanish subtitles
+
+    /** One lookup at a time (each asks all your add-ons): only for the titles you stop on. */
+    private static final ExecutorService BADGES = Executors.newSingleThreadExecutor();
+    private final java.util.Set<String> badgeWanted = java.util.Collections.synchronizedSet(new java.util.HashSet<>());
+    private final java.util.Set<String> badgeAsked = new java.util.HashSet<>();
+    private final Runnable badgesNow = this::checkBadges;
+
+    /** Half a second after you stop moving (titles you only go past aren't looked up). */
+    private void scheduleBadges() {
+        handler.removeCallbacks(badgesNow);
+        handler.postDelayed(badgesNow, 500);
+    }
+
+    /** The featured title, or the focused card and the next two. */
+    private void checkBadges() {
+        if (Config.STREMIO_KEY.trim().isEmpty()) return;
+        List<Recs.Pick> near = new ArrayList<>();
+        if (focusRow == -1 && featured != null) near.add(featured);
+        else if (focusRow >= 0 && focusRow < rows.size() && !rows.get(focusRow).apps) {
+            Row r = rows.get(focusRow);
+            for (int i = 0; i < 3 && i < r.cards.size(); i++) {
+                Card cd = r.cards.get((focusCol[focusRow] + i) % r.cards.size());
+                if (cd.pick != null) near.add(cd.pick);
+            }
+        }
+        badgeWanted.clear();
+        for (final Recs.Pick p : near) {
+            final String link = badgeLink(p);
+            if (link == null) continue;
+            badgeWanted.add(link);
+            if (Streams.knownBadge(link) != null || !badgeAsked.add(link)) continue;
+            badgeTexts.remove(link);   // "checking…" while it's asked
+            BADGES.execute(() -> {
+                if (badgeWanted.contains(link)) Streams.peek(link);   // else you went past it meanwhile
+                handler.post(() -> {
+                    badgeAsked.remove(link);
+                    badgeTexts.remove(link);
+                    screen.invalidate();
+                });
+            });
+        }
+        screen.invalidate();
+    }
+
+    private final java.util.Map<Recs.Pick, String> badgeLinks = new java.util.WeakHashMap<>();
+    private final java.util.Map<String, String> badgeTexts = new java.util.HashMap<>();   // link → its line ("" = none yet)
+
+    /** What's looked up for a card: the movie, the episode you're on, or a show's first episode (made once per title). */
+    private String badgeLink(Recs.Pick p) {
+        if (p == null) return null;
+        String link = badgeLinks.get(p);
+        if (link == null) badgeLinks.put(p, link = makeBadgeLink(p));
+        return link.isEmpty() ? null : link;
+    }
+
+    private static String makeBadgeLink(Recs.Pick p) {
+        String prefix = "stremio:///detail/";
+        if (p.link == null || !p.link.startsWith(prefix)) return "";
+        String[] parts = p.link.substring(prefix.length()).split("/");
+        if (parts.length < 2) return "";
+        if (parts[0].equals("series") && parts.length == 2) return p.link + "/" + parts[1] + (parts[1].startsWith("kitsu:") ? ":1" : ":1:1");
+        return p.link;
+    }
+
+    /** "⚡ LAT · SUB" (in your debrid, Latin American Spanish, Spanish subtitles), "…" while it's asked, or null (made once). */
+    private String badgeText(Recs.Pick p) {
+        String link = badgeLink(p);
+        if (link == null) return null;
+        String t = badgeTexts.get(link);
+        if (t == null) badgeTexts.put(link, t = makeBadgeText(link));
+        return t.isEmpty() ? null : t;
+    }
+
+    private String makeBadgeText(String link) {
+        Streams.Badge b = Streams.knownBadge(link);
+        if (b == null) return badgeAsked.contains(link) ? "…" : "";
+        if (b.none) return es("Sin versión", "None");
+        StringBuilder t = new StringBuilder();
+        if (b.cached) t.append("⚡ ");
+        t.append(b.latino ? "LAT" : b.spain ? "CAST" : es("VO", "OV"));   // VO: versión original
+        if (b.subs) t.append(" · SUB");
+        return t.toString();
     }
 
     private void activate() {
@@ -785,6 +910,17 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
                 it = c.app;
             }
         }
+        launch(it, r);
+    }
+
+    /** A title from elsewhere (Search) as if its card were pressed: a show's page, a movie plays. */
+    private void openPick(Recs.Pick p) {
+        if (p == null || p.pkg == null) return;
+        RectF r = billboardRect(new RectF());
+        if (openResume(p)) return;
+        HomeApps.Item it = HomeApps.app(p.pkg, Recs.serviceName(p));
+        it.link = p.link;
+        if (pickEpisode(p, it, r)) return;
         launch(it, r);
     }
 
@@ -1058,8 +1194,10 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
             r1.set(0, 0, w, h);
             drawCover(c, recs.image(p.backdrop, "w1280"), r1, 0, 0xFF111114);
         }
+        fill.setColor(0xFF000000);   // opaque: a leftover alpha would fade the shade
         fill.setShader(new LinearGradient(0, 0, w * 0.72f, 0, 0xF2000000, 0x00000000, Shader.TileMode.CLAMP));
         c.drawRect(0, 0, w, h, fill);
+        fill.setColor(0xFF000000);   // opaque: a leftover alpha would fade the shade
         fill.setShader(new LinearGradient(0, h * 0.42f, 0, h, 0x00000000, 0xF5000000, Shader.TileMode.CLAMP));
         c.drawRect(0, 0, w, h, fill);
         fill.setShader(null);
@@ -1156,6 +1294,7 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
         String still = e.optString("still_path", "");
         boolean none = still.isEmpty() || "null".equals(still), soon = d.upcoming(e);
         drawCover(c, none ? recs.image(d.pick.backdrop, "w780") : recs.image(still, "w300"), r, rad, 0xFF26262A);
+        fill.setColor(0xFF000000);   // opaque: a leftover alpha would fade the shade
         fill.setShader(new LinearGradient(0, r.bottom - r.height() * 0.55f, 0, r.bottom, 0x00000000, 0xD8000000, Shader.TileMode.CLAMP));
         c.drawRoundRect(r, rad, rad, fill);
         fill.setShader(null);
@@ -1178,6 +1317,15 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
 
     private boolean editMenu() {
         Card c = focused();
+        Recs.Pick held = focusRow == -1 ? featured : c != null ? c.pick : null;
+        if (held != null && (focusRow == -1 || c.pick != null)) {
+            // A title held: in or out of My list.
+            boolean in = recs.toggleFavorite(held);
+            Toast.makeText(getContext(), in ? es("Agregado a Mi lista", "Added to My list") : es("Quitado de Mi lista", "Removed from My list"),
+                    Toast.LENGTH_SHORT).show();
+            click.open();
+            return true;
+        }
         if (c == null || c.app == null || c.app.kind != HomeApps.APP || c.app.pkg == null) return false;
         final HomeApps.Item it = c.app;
         final Context ctx = getContext();
@@ -1233,7 +1381,7 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
         changed(dx, 0);
     }
 
-    // MARK: - Trailer: a muted YouTube player under the focused card, shown once it really plays
+    // MARK: - Trailer: a YouTube player under the focused card, shown once it really plays
 
     private Recs.Pick trailerPick() {
         if (focusRow == -1) return featured;
@@ -1265,9 +1413,10 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
         recs.trailer(p, found -> {
             if (found == null || !running || p != trailerPick()) return;
             final String key = found.substring(0, found.indexOf('|'));
-            // "|es": in your language; "|music": an opening song; "|mute": the original trailer, without sound.
+            // "|es": in your language; "|music": an opening song; "|mute": the original trailer (with sound now, and
+            // YouTube's Spanish captions when it has them).
             final String tag = found.substring(found.indexOf('|') + 1);
-            final boolean mute = tag.equals("mute");
+            final boolean mute = false;
             final boolean subs = !tag.equals(es("es", "en")) && !tag.equals("music");
             trailerKey = key;
             RectF r = focusRow == -1 ? billboardRect(new RectF()) : wideCardRect(new RectF());
@@ -1298,6 +1447,7 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
         handler.removeCallbacks(watchAhead);
         if (!onVideoPage() && (watchPick == null || watchPick != keepWatch)) stopWatch();
         if (trailerKey != null) web.evaluateJavascript("stop()", null);
+        if (trailerOn) AppLog.w("trailer off");
         trailerKey = null;
         trailerOn = false;
         trailerBox.setAlpha(0);
@@ -1349,6 +1499,7 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
                 final String key = trailerKey;
                 handler.postDelayed(() -> {
                     if (!key.equals(trailerKey)) return;
+                    if (!trailerOn) AppLog.w("trailer on " + key);   // next to the player's errors: two videos at once?
                     trailerOn = true;
                     trailerBox.animate().alpha(1).setDuration(400).start();
                     screen.invalidate();
@@ -1531,7 +1682,7 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
     private boolean fullKey(KeyEvent e) {
         int code = e.getKeyCode();
         if (code == KeyEvent.KEYCODE_BACK || code == KeyEvent.KEYCODE_ESCAPE) {
-            if (e.getAction() == KeyEvent.ACTION_DOWN) {
+            if (e.getAction() == KeyEvent.ACTION_DOWN && !watch.onBack()) {
                 detail.full = false;
                 watch.setFull(false);
                 fadeDetail(1, null);
@@ -1590,6 +1741,8 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
         billTitle = new TextPaint(Ui.text(Ui.displaySemibold, 92 * k, 0xFFFFFFFF));
         billMeta = new TextPaint(Ui.text(Ui.medium, 23 * k, 0xFFE4E4E7));
         billOverview = new TextPaint(Ui.text(Ui.regular, 23 * k, 0xFFD4D4D8));
+        // A soft shadow under the banner's text: it reads on a white picture too.
+        for (Paint t : new Paint[] {billTitle, billMeta, billOverview, nameUnder, kindLabel}) t.setShadowLayer(10 * k, 0, 2 * k, 0xE6000000);
         ring.setStyle(Paint.Style.STROKE);
         ring.setStrokeWidth(4 * k);
         ring.setColor(0xFFFFFFFF);
@@ -1739,7 +1892,7 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
         }
         for (int i = 0; i < SIDE_ITEMS; i++) {
             float cy = cy0 + i * gapY;
-            boolean here = i >= 1 && i <= 4 && i - 1 == tab;
+            boolean here = i >= 1 && i < SIDE_APPS && i - 1 == tab;
             if (!sideOpen) {
                 if (here) {
                     fill.setColor(0x1FFFFFFF);
@@ -1762,7 +1915,7 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
         }
     }
 
-    /** Search, Home, Shows, Movies, Anime and Settings as line icons (24-unit drawings, scaled to `size`). */
+    /** Search, Home, Shows, Movies, Apps and Settings as line icons (24-unit drawings, scaled to `size`). */
     private void drawSideIcon(Canvas c, int i, float cx, float cy, float size, int color) {
         float u = size / 24f, x0 = cx - 12 * u, y0 = cy - 12 * u;
         icon.setColor(color);
@@ -1798,20 +1951,11 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
                 iconPath.moveTo(x0 + 4 * u, y0 + 12 * u);
                 iconPath.lineTo(x0 + 20 * u, y0 + 12 * u);
                 break;
-            case 4:
-                iconPath.moveTo(x0 + 12 * u, y0 + 3 * u);
-                iconPath.lineTo(x0 + 13.8f * u, y0 + 8.2f * u);
-                iconPath.lineTo(x0 + 19 * u, y0 + 10 * u);
-                iconPath.lineTo(x0 + 13.8f * u, y0 + 11.8f * u);
-                iconPath.lineTo(x0 + 12 * u, y0 + 17 * u);
-                iconPath.lineTo(x0 + 10.2f * u, y0 + 11.8f * u);
-                iconPath.lineTo(x0 + 5 * u, y0 + 10 * u);
-                iconPath.lineTo(x0 + 10.2f * u, y0 + 8.2f * u);
-                iconPath.close();
-                iconPath.moveTo(x0 + 18 * u, y0 + 16 * u);
-                iconPath.lineTo(x0 + 18 * u, y0 + 21 * u);
-                iconPath.moveTo(x0 + 15.5f * u, y0 + 18.5f * u);
-                iconPath.lineTo(x0 + 20.5f * u, y0 + 18.5f * u);
+            case SIDE_APPS:
+                for (int gy = 0; gy < 2; gy++)
+                    for (int gx = 0; gx < 2; gx++)
+                        iconPath.addRoundRect(x0 + (4 + gx * 9) * u, y0 + (4 + gy * 9) * u, x0 + (11 + gx * 9) * u, y0 + (11 + gy * 9) * u,
+                                2 * u, 2 * u, Path.Direction.CW);
                 break;
             default:
                 c.drawCircle(cx, cy, 3.2f * u, icon);
@@ -1839,9 +1983,14 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
             Bitmap img = p == null ? null : recs.image(p.backdrop, "w1280");
             drawFading(c, img, b, rad, 0xFF1C1C1F, ca);
         }
-        fill.setShader(new LinearGradient(b.left, 0, b.left + b.width() * 0.62f, 0, 0xE0000000, 0x00000000, Shader.TileMode.CLAMP));
+        // Soft shade from the left and the bottom, so white text reads even on a white picture.
+        fill.setColor(0xFF000000);   // opaque: a leftover alpha would fade the shade
+        fill.setShader(new LinearGradient(b.left, 0, b.left + b.width() * 0.75f, 0,
+                new int[] {0xCC000000, 0x99000000, 0x40000000, 0x00000000}, new float[] {0, 0.4f, 0.7f, 1}, Shader.TileMode.CLAMP));
         c.drawRoundRect(b, rad, rad, fill);
-        fill.setShader(new LinearGradient(0, b.bottom - b.height() * 0.5f, 0, b.bottom, 0x00000000, 0xB0000000, Shader.TileMode.CLAMP));
+        fill.setColor(0xFF000000);   // opaque: a leftover alpha would fade the shade
+        fill.setShader(new LinearGradient(0, b.bottom - b.height() * 0.65f, 0, b.bottom,
+                new int[] {0x00000000, 0x4D000000, 0xA6000000}, new float[] {0, 0.5f, 1}, Shader.TileMode.CLAMP));
         c.drawRoundRect(b, rad, rad, fill);
         fill.setShader(null);
         if (focusRow == -1) c.drawRoundRect(b, rad, rad, ring);
@@ -1868,7 +2017,7 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
         if (p != null) {
             float x = b.left + 64 * k, bottom = b.bottom - 64 * k;
             // Bottom up: buttons, overview, meta, title, label.
-            String cta = (p.resuming ? es("Reanudar en ", "Resume on ") : es("Ver en ", "Watch on ")) + Recs.serviceName(p);
+            String cta = p.resuming ? es("Reanudar", "Resume") : es("Reproducir", "Play");
             float bh = 62 * k, bw = button.measureText(cta) + 92 * k;
             r1.set(x, bottom - bh, x + bw, bottom);
             fill.setColor(0xFFFFFFFF);
@@ -1891,6 +2040,7 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
                 fill.setColor(i == featuredIndex ? 0xFFFFFFFF : 0x66FFFFFF);
                 c.drawCircle(dx + i * 22 * k, b.bottom - 48 * k, i == featuredIndex ? dot * 0.7f : dot * 0.5f, fill);
             }
+            drawPill(c, badgeText(p), b.right - 28 * k, b.top + 58 * k);
         }
         if (!rows.isEmpty()) {
             Row first = rows.get(0);
@@ -1987,6 +2137,7 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
         boolean playing = wide && (trailerOn || watchOn) && focusRow >= 0;
         float ca = playing ? coverAlpha() : 1;
         if (ca > 0) drawFading(c, recs.image(p.backdrop, "w780"), r, rad, 0xFF26262A, ca);
+        fill.setColor(0xFF000000);   // opaque: a leftover alpha would fade the shade
         fill.setShader(new LinearGradient(0, r.bottom - r.height() * (playing ? 0.45f : 0.5f), 0, r.bottom, 0x00000000,
                 playing ? 0xB0000000 : 0xD0000000, Shader.TileMode.CLAMP));
         c.drawRoundRect(r, rad, rad, fill);
@@ -2009,6 +2160,22 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
             String t = TextUtils.ellipsize(p.title, new TextPaint(peekTitle), r.width() - 24 * k, TextUtils.TruncateAt.END).toString();
             c.drawText(t, r.centerX() - peekTitle.measureText(t) / 2, r.bottom - 22 * k, peekTitle);
         }
+        drawPill(c, badgeText(p), r.right - 12 * k, r.top + 42 * k);
+    }
+
+    private final RectF pillRect = new RectF();
+
+    /** A dark pill right-aligned at `right` with the text in the accent color (the card's badge). */
+    private void drawPill(Canvas c, String text, float right, float base) {
+        if (text == null) return;
+        float tw = badge.measureText(text), ph = 32 * k;
+        pillRect.set(right - tw - 24 * k, base - ph + 6 * k, right, base + 6 * k);
+        fill.setShader(null);
+        fill.setColor(0xCC000000);
+        c.drawRoundRect(pillRect, 8 * k, 8 * k, fill);
+        badge.setColor(0xFFF5A524);
+        c.drawText(text, pillRect.left + 12 * k, pillRect.centerY() + Ui.halfCap(badge), badge);
+        badge.setColor(0xFFFFFFFF);
     }
 
     /**

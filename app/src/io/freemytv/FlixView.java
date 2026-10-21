@@ -1438,6 +1438,7 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
         menuFocus = 0;
         menuOk = false;
         menuAt = android.os.SystemClock.uptimeMillis();
+        holdMedia(true);
         click.open();
         screen.invalidate();
     }
@@ -1459,19 +1460,30 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
                     if (e.getRepeatCount() == 0) menuOk = true;
                 } else if (menuOk) {
                     Runnable action = menuActions.get(menuFocus);
-                    menuTitle = null;
+                    closeMenu();
                     action.run();
                 }
                 break;
             case KeyEvent.KEYCODE_BACK:
             case KeyEvent.KEYCODE_DPAD_LEFT:
-                if (!down) menuTitle = null;
+                if (!down) closeMenu();
                 break;
             default:
                 break;
         }
         screen.invalidate();
         return true;
+    }
+
+    private void closeMenu() {
+        menuTitle = null;
+        holdMedia(false);
+    }
+
+    /** The trailer and the video in a Continue watching card: paused while the menu is open, then on again. */
+    private void holdMedia(boolean held) {
+        web.evaluateJavascript("hold(" + held + ")", null);
+        watch.hold(held);
     }
 
     /**
@@ -1689,10 +1701,13 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
             + "playsinline:1,iv_load_policy:3,hl:lang,cc_lang_pref:lang,cc_load_policy:subs?1:0},events:{"
             + "onReady:function(e){fit();sound(e.target);captions(subs,lang);e.target.playVideo();},"
             + "onStateChange:function(e){var id=(player&&player.getVideoData)?player.getVideoData().video_id:'';"
-            + "if(e.data==1){fit();FreeMyTV.playing(id);}if(e.data==0)FreeMyTV.ended(id);},"
+            + "if(e.data==1){if(H){player.pauseVideo();return;}fit();FreeMyTV.playing(id);}if(e.data==0)FreeMyTV.ended(id);},"
             + "onError:function(e){FreeMyTV.failed();}}});}"
             + "else{player.loadVideoById(k);sound(player);captions(subs,lang);}}"
-            + "function stop(){pending=null;if(player&&player.stopVideo)player.stopVideo();}</script></body></html>";
+            + "function stop(){pending=null;if(player&&player.stopVideo)player.stopVideo();}"
+            // Held while a menu is open: paused (one starting meanwhile waits too), then on from where it was.
+            + "var H=false;function hold(p){H=p;try{if(!player)return;if(p)player.pauseVideo();"
+            + "else if(player.getPlayerState()==2)player.playVideo();}catch(e){}}</script></body></html>";
 
     private final class Bridge {
         /** Shown only if it's this card's video (a late event from the last one must not show it here). */

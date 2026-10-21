@@ -176,7 +176,7 @@ final class Playback extends FrameLayout {
                 .build();
         if (!waiting) player.setVideoSurfaceView(surface);
         player.addListener(events);
-        player.setPlayWhenReady(!waiting);
+        player.setPlayWhenReady(!waiting && !held);
         askedAt = SystemClock.uptimeMillis();
         next(c.startAt);
         handler.postDelayed(save, SAVE_EVERY);
@@ -205,6 +205,14 @@ final class Playback extends FrameLayout {
         return player != null && waiting;
     }
 
+    private boolean held;
+
+    /** Paused while something is over it (the home screen's menu), then on from there; a video starting meanwhile waits. */
+    void hold(boolean on) {
+        held = on;
+        if (player != null && !waiting) player.setPlayWhenReady(!on);
+    }
+
     /** Shows (and plays) what was loaded ahead. */
     void reveal() {
         if (!waiting()) return;
@@ -212,7 +220,7 @@ final class Playback extends FrameLayout {
         askedAt = SystemClock.uptimeMillis();
         AppLog.w("player: showing what was loaded ahead (" + (ready ? "ready" : "still loading") + ")");
         player.setVideoSurfaceView(surface);
-        player.setPlayWhenReady(true);
+        player.setPlayWhenReady(!held);
     }
 
     long position() {

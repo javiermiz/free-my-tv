@@ -1,6 +1,6 @@
 # Installing Free My TV · streaming edition
 
-**English** · [Español](SETUP.es.md)
+**English** · [Español](SETUP.es.md) · [Português](SETUP.pt.md)
 
 This is a version of [Free My TV](https://github.com/simbasjungles/free-my-tv) (by simbasjungles, MIT license) with a
 streaming-style home screen. Here are **all** the steps, from zero to having it on your TV. The first time takes about 20

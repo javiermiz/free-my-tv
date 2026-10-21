@@ -1,6 +1,6 @@
 <div align="center">
 
-[English](README.md) · **Español**
+[English](README.md) · **Español** · [Português](README.pt.md)
 
 <img src="app/res/drawable-nodpi/icon.png" width="96" alt="">
 

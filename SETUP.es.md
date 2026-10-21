@@ -1,6 +1,6 @@
 # Cómo instalar Free My TV · versión streaming
 
-[English](SETUP.md) · **Español**
+[English](SETUP.md) · **Español** · [Português](SETUP.pt.md)
 
 Esta es una versión de [Free My TV](https://github.com/simbasjungles/free-my-tv) (de simbasjungles, licencia MIT) con un
 home al estilo de las apps de streaming. Aquí están **todos** los pasos, de cero a tenerlo en tu TV. La primera vez toma

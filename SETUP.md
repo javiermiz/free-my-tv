@@ -1,77 +1,79 @@
-# Cómo instalar Free My TV · versión streaming
+# Installing Free My TV · streaming edition
 
-Esta es una versión de [Free My TV](https://github.com/simbasjungles/free-my-tv) (de simbasjungles, licencia MIT) con un
-home al estilo de las apps de streaming. Aquí están **todos** los pasos, de cero a tenerlo en tu TV. La primera vez toma
-unos 20 minutos; casi todo es esperar descargas.
+**English** · [Español](SETUP.es.md)
 
-Resumen:
+This is a version of [Free My TV](https://github.com/simbasjungles/free-my-tv) (by simbasjungles, MIT license) with a
+streaming-style home screen. Here are **all** the steps, from zero to having it on your TV. The first time takes about 20
+minutes, mostly waiting for downloads.
 
-1. [Instala las herramientas en tu computadora](#1-las-herramientas)
-2. [Prepara la TV](#2-prepara-la-tv)
-3. [Consigue las llaves](#3-las-llaves) (TMDB obligatoria; Stremio y YouTube opcionales)
-4. [Llena `config.properties`](#4-llena-configproperties)
-5. [Compila e instala](#5-compila-e-instala)
-6. [Actívalo en la TV](#6-actívalo-en-la-tv)
-7. [Actualizar, volver al original y problemas comunes](#7-actualizar-volver-al-original-y-problemas)
+In short:
 
-> **Tus llaves son tuyas y secretas.** Van solo en `config.properties`, que nunca se sube a git (está en `.gitignore`).
-> No las pegues en issues, chats ni capturas.
+1. [Install the tools on your computer](#1-the-tools)
+2. [Prepare the TV](#2-prepare-the-tv)
+3. [Get the keys](#3-the-keys) (TMDB required; Stremio and YouTube optional)
+4. [Fill in `config.properties`](#4-fill-in-configproperties)
+5. [Build and install](#5-build-and-install)
+6. [Switch it on on the TV](#6-switch-it-on-on-the-tv)
+7. [Updating, going back and common problems](#7-updating-going-back-and-problems)
+
+> **Your keys are yours and secret.** They only go in `config.properties`, which is never committed to git (it's in
+> `.gitignore`). Don't paste them into issues, chats or screenshots.
 
 ---
 
-## 1. Las herramientas
+## 1. The tools
 
-Necesitas, en la computadora:
+On your computer you need:
 
-- **git**, para bajar el código.
-- **Un JDK 17 o más nuevo** (Java), para compilar.
-- **Las herramientas de línea de comandos del Android SDK**: `build-tools` 34 o más nuevo y la plataforma `android-34`.
-- **adb**, para instalar la app en la TV por Wi-Fi.
-- **Python 3**, solo si vas a sacar la llave de Stremio con correo y contraseña.
+- **git**, to get the code.
+- **A JDK 17 or newer** (Java), to build.
+- **The Android SDK command-line tools**: `build-tools` 34 or newer and the `android-34` platform.
+- **adb**, to install the app on the TV over Wi-Fi.
+- **Python 3**, only if you'll get your Stremio key with an email and password.
 
 ### macOS
 
-1. Si no tienes [Homebrew](https://brew.sh), abre la app *Terminal* y pega la línea de instalación de su página. Al
-   terminar, sigue las dos líneas que te imprime ("Next steps") para agregarlo al PATH.
-2. Instala Java, el SDK y adb:
+1. If you don't have [Homebrew](https://brew.sh), open the *Terminal* app and paste the install line from its page. When
+   it's done, run the two lines it prints under "Next steps" to add it to your PATH.
+2. Install Java, the SDK and adb:
    ```bash
    brew install --cask temurin android-commandlinetools android-platform-tools
    ```
-3. Descarga build-tools y la plataforma de Android (acepta las licencias con `y` cuando te pregunte):
+3. Download the Android build-tools and platform (accept the licenses with `y` when asked):
    ```bash
    sdkmanager "build-tools;34.0.0" "platforms;android-34"
    ```
-4. Comprueba que todo está:
+4. Check everything is there:
    ```bash
    java -version
    ```
    ```bash
    adb version
    ```
-   `java -version` debe decir 17 o más. Si dice otra versión (o tienes varias), usa la 17 al compilar con
+   `java -version` must say 17 or newer. If it says another version (or you have several), build with version 17 using
    `JAVA_HOME=$(/usr/libexec/java_home -v 17) ./build.sh`.
 
-`git` y `python3` ya vienen con macOS: la primera vez que los uses puede pedirte instalar las *Command Line Tools*;
-acepta.
+`git` and `python3` come with macOS: the first time you use them it may ask to install the *Command Line Tools*; accept.
 
 ### Linux
 
-1. Instala git, OpenJDK 17, adb y Python 3 con tu gestor de paquetes. En Ubuntu o Debian:
+1. Install git, OpenJDK 17, adb and Python 3 from your package manager. On Ubuntu or Debian:
    ```bash
    sudo apt install git openjdk-17-jdk adb python3 unzip curl
    ```
-2. Descarga las *Command line tools only* de [developer.android.com/studio](https://developer.android.com/studio#command-tools),
-   descomprímelas en `~/Android/Sdk/cmdline-tools/latest/` y corre:
+2. Download the *Command line tools only* from [developer.android.com/studio](https://developer.android.com/studio#command-tools),
+   unzip them into `~/Android/Sdk/cmdline-tools/latest/` and run:
    ```bash
    ~/Android/Sdk/cmdline-tools/latest/bin/sdkmanager "build-tools;34.0.0" "platforms;android-34"
    ```
-   `build.sh` encuentra el SDK solo en `~/Android/Sdk`. Si lo pusiste en otro lado, exporta `ANDROID_HOME` con esa ruta.
+   `build.sh` finds the SDK by itself in `~/Android/Sdk`. If you put it somewhere else, export `ANDROID_HOME` with that
+   path.
 
 ### Windows
 
-Instala [WSL](https://learn.microsoft.com/es-es/windows/wsl/install) (Ubuntu) y sigue los pasos de Linux dentro de él.
+Install [WSL](https://learn.microsoft.com/windows/wsl/install) (Ubuntu) and follow the Linux steps inside it.
 
-### Baja el código
+### Get the code
 
 ```bash
 git clone https://github.com/javiermiz/free-my-tv
@@ -82,126 +84,123 @@ cd free-my-tv
 
 ---
 
-## 2. Prepara la TV
+## 2. Prepare the TV
 
-1. **Activa el modo desarrollador:** Ajustes → Sistema → Información → baja hasta *Compilación del SO de Android TV* y
-   presiona OK **7 veces** seguidas, hasta que diga que ya eres desarrollador. (En algunas TVs está en Ajustes →
-   Preferencias del dispositivo → Información.)
-2. **Activa la depuración:** Ajustes → Sistema → Opciones para desarrolladores → activa **Depuración por USB**. Si tu TV
-   tiene aparte *Depuración por red* o *Depuración inalámbrica*, actívala también.
-3. **Anota la IP de la TV:** Ajustes → Red e Internet → tu red Wi-Fi (o Ethernet) → *Dirección IP*. Algo como
-   `192.168.1.50`. La computadora y la TV deben estar en la misma red.
-4. **Instala las apps que quieras abrir desde el home** desde la Play Store de la TV: Netflix, Disney+, Prime Video,
-   Paramount+, Crunchyroll y **Stremio**. Las que no tengas simplemente no aparecen.
-5. **Si vas a usar Stremio**, abre Stremio en la TV e inicia sesión con **la misma cuenta** de la que vas a sacar la
-   llave (paso 3).
+1. **Turn on developer mode:** Settings → System → About → scroll to *Android TV OS build* and press OK **7 times** in a
+   row, until it says you're a developer. (On some TVs it's under Settings → Device Preferences → About.)
+2. **Turn on debugging:** Settings → System → Developer options → turn on **USB debugging**. If your TV also has a
+   separate *Network debugging* or *Wireless debugging*, turn that on too.
+3. **Write down the TV's IP address:** Settings → Network & Internet → your Wi-Fi (or Ethernet) network → *IP address*.
+   Something like `192.168.1.50`. The computer and the TV must be on the same network.
+4. **Install the apps you want to open from the home screen** from the TV's Play Store: Netflix, Disney+, Prime Video,
+   Paramount+, Crunchyroll and **Stremio**. The ones you don't have simply don't show up.
+5. **If you'll use Stremio**, open Stremio on the TV and sign in with **the same account** you'll take the key from
+   (step 3).
 
 ---
 
-## 3. Las llaves
+## 3. The keys
 
-| Llave | ¿Necesaria? | Qué pasa sin ella |
+| Key | Required? | What happens without it |
 |---|---|---|
-| TMDB (`tmdb_key`) | **Sí** | El home queda sin títulos, imágenes ni tráilers. |
-| Stremio (`stremio_key`) | No | No hay Continuar viendo, Mi lista, Nuevos episodios, recomendaciones según lo que ves ni reproductor propio. |
-| YouTube (`youtube_key`) | No | Si TMDB no tiene tráiler en tu idioma, se usa lo que TMDB tenga (un clip, el opening de un anime o el tráiler original sin sonido). |
+| TMDB (`tmdb_key`) | **Yes** | The home screen has no titles, images or trailers. |
+| Stremio (`stremio_key`) | No | No Continue watching, My list, New episodes, picks based on what you watch, or player. |
+| YouTube (`youtube_key`) | No | When TMDB has no trailer in your language, it uses whatever TMDB has (a clip, an anime's opening, or the original trailer muted). |
 
-### TMDB (`tmdb_key`): obligatoria, gratis
+### TMDB (`tmdb_key`): required, free
 
-TMDB es la base de datos de películas y series de donde salen las recomendaciones, los pósters, los logos, los tráilers y
-en qué servicio está cada título.
+TMDB is the movie and TV database the picks, posters, logos, trailers and "which service has it" come from.
 
-1. Crea una cuenta en [themoviedb.org/signup](https://www.themoviedb.org/signup) y confirma tu correo (te llega un
-   enlace).
-2. Inicia sesión y ve a [themoviedb.org/settings/api](https://www.themoviedb.org/settings/api) (tu avatar → Ajustes →
+1. Create an account at [themoviedb.org/signup](https://www.themoviedb.org/signup) and confirm your email (you'll get a
+   link).
+2. Sign in and go to [themoviedb.org/settings/api](https://www.themoviedb.org/settings/api) (your avatar → Settings →
    API).
-3. Pulsa **Crear** (o *Request an API Key*) y elige **Developer**.
-4. Acepta los términos y llena el formulario: tipo de uso *Personal*, nombre de la app (por ejemplo "Free My TV"),
-   URL (puede ser `https://github.com/javiermiz/free-my-tv`) y un resumen corto ("Home para mi TV"). Tus datos de
-   contacto los pide TMDB; no se comparten con nadie más.
-5. Al enviarlo verás dos valores: **API Key** (32 caracteres) y **API Read Access Token** (muy largo, empieza con
-   `eyJ`). Cualquiera de los dos sirve; copia uno.
+3. Click **Create** (or *Request an API Key*) and choose **Developer**.
+4. Accept the terms and fill in the form: type of use *Personal*, an application name (say "Free My TV"), a URL (it can
+   be `https://github.com/javiermiz/free-my-tv`) and a short summary ("Home screen for my TV"). TMDB asks for your
+   contact details; they aren't shared with anyone else.
+5. Once submitted you'll see two values: **API Key** (32 characters) and **API Read Access Token** (very long, starts
+   with `eyJ`). Either one works; copy one.
 
-### Stremio (`stremio_key`): opcional
+### Stremio (`stremio_key`): optional
 
-Es la llave de tu sesión de Stremio. Con ella el home lee tu biblioteca (Continuar viendo, Mi lista, Nuevos episodios),
-te recomienda según lo último que viste, y el reproductor propio guarda tu avance en tu cuenta (lo que ves en la TV
-aparece igual en Stremio y en tu teléfono). No es tu contraseña: es una llave de sesión; si algún día quieres invalidarla,
-cierra la sesión de Stremio en todos tus dispositivos.
+It's your Stremio session key. With it the home screen reads your library (Continue watching, My list, New episodes),
+picks titles like the ones you watched last, and the player saves your place to your account (what you watch on the TV
+shows up the same on Stremio and on your phone). It isn't your password: it's a session key. To revoke it some day, sign
+out of Stremio on all your devices.
 
-Si aún no tienes cuenta, créala gratis en [stremio.com](https://www.stremio.com).
+If you don't have an account yet, create one for free at [stremio.com](https://www.stremio.com).
 
-**Si entras a Stremio con correo y contraseña** (lo más fácil):
+**If you sign in to Stremio with an email and password** (easiest):
 
-1. Primero corre `./build.sh` una vez (paso 5) para que exista `config.properties`. Fallará la compilación o no, da
-   igual: lo que importa es que cree el archivo.
-2. En la carpeta del proyecto:
+1. Run `./build.sh` once first (step 5) so `config.properties` exists. Whether the build succeeds doesn't matter here;
+   what matters is that it creates the file.
+2. In the project folder:
    ```bash
    python3 tools/stremio_key.py
    ```
-3. Escribe tu correo y tu contraseña de Stremio (la contraseña no se ve mientras escribes). Se mandan solo a
-   `api.strem.io`, no se guardan ni se imprimen. La llave queda escrita sola en `config.properties`.
+3. Type your Stremio email and password (the password isn't shown as you type). They're sent only to `api.strem.io`, and
+   never saved or printed. The key is written into `config.properties` for you.
 
-**Si entras con Facebook o Google** (no tienes contraseña de Stremio):
+**If you sign in with Facebook or Google** (you have no Stremio password):
 
-1. En la computadora, abre [web.stremio.com](https://web.stremio.com) en Chrome, Edge o Firefox e inicia sesión como
-   siempre.
-2. Abre la consola del navegador: **F12** (en Mac, **Cmd+Opción+J** en Chrome o **Cmd+Opción+K** en Firefox) → pestaña
-   *Console*. Si el navegador te pide escribir `allow pasting` antes de pegar, escríbelo y pulsa Enter.
-3. Pega esto y pulsa Enter:
+1. On your computer, open [web.stremio.com](https://web.stremio.com) in Chrome, Edge or Firefox and sign in as usual.
+2. Open the browser console: **F12** (on a Mac, **Cmd+Option+J** in Chrome or **Cmd+Option+K** in Firefox) → the
+   *Console* tab. If the browser asks you to type `allow pasting` first, type it and press Enter.
+3. Paste this and press Enter:
    ```js
-   (() => { for (const k of Object.keys(localStorage)) { try { const o = JSON.parse(localStorage.getItem(k)); const key = o?.auth?.key || o?.profile?.auth?.key; if (key) { copy(key); return "Copiada (de " + k + ")"; } } catch (e) {} } return "No encontrada"; })()
+   (() => { for (const k of Object.keys(localStorage)) { try { const o = JSON.parse(localStorage.getItem(k)); const key = o?.auth?.key || o?.profile?.auth?.key; if (key) { copy(key); return "Copied (from " + k + ")"; } } catch (e) {} } return "Not found"; })()
    ```
-4. Si dice *Copiada*, la llave está en tu portapapeles: pégala después de `stremio_key=` en `config.properties`. Si
-   dice *No encontrada*, recarga la página con la sesión iniciada y vuelve a intentar.
+4. If it says *Copied*, the key is on your clipboard: paste it after `stremio_key=` in `config.properties`. If it says
+   *Not found*, reload the page while signed in and try again.
 
-**Para el reproductor propio** además necesitas, en tu cuenta de Stremio, add-ons que den **enlaces directos** (HTTP).
-El reproductor usa los add-ons que ya tengas instalados en tu cuenta y elige el mejor: audio en español latino, luego el
-original con subtítulos en español, luego español de España, luego lo demás. Los torrents no se reproducen aquí (necesitan
-el motor de Stremio): si un título solo tiene torrents, el home lo abre en la app de Stremio. Usa solo add-ons y fuentes
-que tengas derecho a ver.
+**For the player** you also need add-ons on your Stremio account that give **direct links** (HTTP). The player uses the
+add-ons already installed on your account and picks the best stream: Latin American Spanish audio, then the original
+with Spanish subtitles, then Spain's Spanish, then anything else. Torrents don't play here (they need Stremio's engine):
+if a title only has torrents, the home screen opens it in the Stremio app. Only use add-ons and sources you have the
+right to watch.
 
-### YouTube (`youtube_key`): opcional, gratis
+### YouTube (`youtube_key`): optional, free
 
-Sirve para buscar en YouTube el tráiler en español latino (o subtitulado) cuando TMDB no lo tiene.
+It's used to search YouTube for the trailer in Latin American Spanish (or with Spanish subtitles) when TMDB doesn't have
+it.
 
-1. Entra a [console.cloud.google.com](https://console.cloud.google.com) con tu cuenta de Google. Si es la primera vez,
-   acepta los términos (no pide tarjeta).
-2. Arriba, en el selector de proyectos → **Proyecto nuevo** → ponle un nombre (por ejemplo "free-my-tv") → **Crear**, y
-   selecciónalo.
-3. Menú ☰ → **APIs y servicios** → **Biblioteca** → busca **YouTube Data API v3** → ábrela → **Habilitar**.
-4. Menú ☰ → **APIs y servicios** → **Credenciales** → **Crear credenciales** → **Clave de API**. Copia la clave (empieza
-   con `AIza`).
-5. Recomendado: en esa clave pulsa **Editar clave de API** → *Restricciones de API* → **Restringir clave** → marca solo
-   *YouTube Data API v3* → **Guardar**. Así, si alguien la ve, no sirve para nada más.
+1. Go to [console.cloud.google.com](https://console.cloud.google.com) with your Google account. If it's your first time,
+   accept the terms (no card needed).
+2. At the top, in the project picker → **New project** → give it a name (say "free-my-tv") → **Create**, and select it.
+3. Menu ☰ → **APIs & Services** → **Library** → search for **YouTube Data API v3** → open it → **Enable**.
+4. Menu ☰ → **APIs & Services** → **Credentials** → **Create credentials** → **API key**. Copy the key (it starts with
+   `AIza`).
+5. Recommended: on that key click **Edit API key** → *API restrictions* → **Restrict key** → tick only *YouTube Data API
+   v3* → **Save**. That way, if anyone sees it, it's useless for anything else.
 
-Es gratis: alcanza para unas 100 búsquedas de tráiler al día. Cuando se acaban, el home usa lo que TMDB tenga y vuelve a
-buscar al día siguiente. Los tráilers encontrados se guardan en la TV, así que solo se busca una vez por título.
+It's free: enough for about 100 trailer searches a day. When they run out, the home screen uses what TMDB has and
+searches again the next day. Trailers it finds are saved on the TV, so each title is only searched once.
 
 ---
 
-## 4. Llena `config.properties`
+## 4. Fill in `config.properties`
 
-Si no existe todavía, corre `./build.sh` una vez: lo crea copiando `config.example.properties`. Ábrelo con cualquier
-editor de texto (en Mac: `open -e config.properties`) y llena:
+If it doesn't exist yet, run `./build.sh` once: it creates it by copying `config.example.properties`. Open it in any text
+editor (on a Mac: `open -e config.properties`) and fill in:
 
-| Clave | Qué poner | Ejemplo |
+| Key | What to put | Example |
 |---|---|---|
-| `tmdb_key` | Tu llave de TMDB (paso 3) | `eyJhbGciOi…` |
-| `tmdb_region` | Tu país en dos letras (decide qué título está en qué servicio) | `MX`, `CO`, `AR`, `CL`, `PE`, `ES`, `US` |
-| `latitude`, `longitude` | Las coordenadas de tu ciudad, en grados decimales | Ciudad de México: `19.4326`, `-99.1332` |
-| `city` | El nombre que se ve junto al clima | `CDMX` |
-| `language` | `es` para títulos, tráilers y home en español | `es` |
-| `temperature` | `C` o `F` | `C` |
-| `stremio_key` | Tu llave de Stremio (paso 3), o vacío | |
-| `youtube_key` | Tu llave de YouTube (paso 3), o vacío | `AIza…` |
-| `disable_assistant` | `true` también apaga el Asistente de Google (el botón de micrófono deja de funcionar) | `false` |
+| `tmdb_key` | Your TMDB key (step 3) | `eyJhbGciOi…` |
+| `tmdb_region` | Your country in two letters (decides which title is on which service) | `US`, `MX`, `CO`, `AR`, `ES`, `GB` |
+| `latitude`, `longitude` | Your city's coordinates, in decimal degrees | Mexico City: `19.4326`, `-99.1332` |
+| `city` | The name shown next to the weather | `CDMX` |
+| `language` | `es` for titles, trailers and home screen in Spanish; `en` for English | `es` |
+| `temperature` | `C` or `F` | `C` |
+| `stremio_key` | Your Stremio key (step 3), or empty | |
+| `youtube_key` | Your YouTube key (step 3), or empty | `AIza…` |
+| `disable_assistant` | `true` also turns off Google Assistant (the remote's mic button stops working) | `false` |
 
-**Para sacar las coordenadas:** abre [Google Maps](https://maps.google.com), haz clic derecho en tu ciudad y pulsa el
-primer renglón (los dos números): se copian. El primero es `latitude`, el segundo `longitude`. Basta con el centro de la
-ciudad; no pongas tu casa.
+**To get the coordinates:** open [Google Maps](https://maps.google.com), right-click your city and click the first line
+(the two numbers): they're copied. The first is `latitude`, the second `longitude`. The city center is enough; don't use
+your home.
 
-Escribe cada valor justo después del `=`, sin comillas ni espacios. Ejemplo:
+Write each value right after the `=`, with no quotes or spaces. For example:
 
 ```properties
 tmdb_key=eyJhbGciOi...
@@ -215,75 +214,74 @@ temperature=C
 
 ---
 
-## 5. Compila e instala
+## 5. Build and install
 
-1. **Compila** en la carpeta del proyecto:
+1. **Build** in the project folder:
    ```bash
    ./build.sh
    ```
-   La primera vez descarga el reproductor (ExoPlayer) a `libs/` y crea tu llave de firma `freemytv.keystore`. Debe
-   terminar con `Built FreeMyTV.apk`. Si dice que no encuentra el JDK, usa
-   `JAVA_HOME=$(/usr/libexec/java_home -v 17) ./build.sh` (Mac) o instala el JDK 17 (Linux).
-2. **Conéctate a la TV** (cambia la IP por la tuya):
+   The first time it downloads the player (ExoPlayer) into `libs/` and creates your signing key `freemytv.keystore`. It
+   must end with `Built FreeMyTV.apk`. If it can't find the JDK, use `JAVA_HOME=$(/usr/libexec/java_home -v 17) ./build.sh`
+   (Mac) or install JDK 17 (Linux).
+2. **Connect to the TV** (swap in your TV's IP):
    ```bash
    adb connect 192.168.1.50:5555
    ```
-   La TV muestra *¿Permitir depuración USB?*: marca **Permitir siempre desde esta computadora** y pulsa **Aceptar**.
-   Comprueba con `adb devices`: debe decir `device` (si dice `unauthorized`, acepta el aviso en la TV).
-3. **Instala:**
+   The TV shows *Allow USB debugging?*: tick **Always allow from this computer** and press **OK**. Check with
+   `adb devices`: it must say `device` (if it says `unauthorized`, accept the prompt on the TV).
+3. **Install:**
    ```bash
    adb install -r FreeMyTV.apk
    ```
-   Debe decir `Success`.
+   It must say `Success`.
 
-**Guarda `freemytv.keystore`** (por ejemplo en tu gestor de contraseñas o un respaldo): las actualizaciones tienen que
-firmarse con la misma llave. Si la pierdes, tendrás que desinstalar la app y volver a instalarla. Tampoco se sube a git.
-
----
-
-## 6. Actívalo en la TV
-
-1. En la TV abre la app **Free My TV** (está en tus apps; sus menús están en inglés).
-2. Entra a **Home Screen** y elige **Free My TV**.
-3. La TV pregunta otra vez *¿Permitir depuración USB?*: es la app usando el ADB de la propia TV para hacer el cambio.
-   Marca **Permitir siempre** y acepta.
-4. Pulsa el botón de inicio del control: ya estás en el home nuevo.
-
-La primera carga de recomendaciones tarda unos 3 minutos y se repite cada 6 horas, en segundo plano. Para ver qué hizo
-el cambio: `adb logcat -s FreeMyTV`.
-
-No cambies el modo desde la computadora: hazlo siempre desde la app en la TV.
+**Keep `freemytv.keystore` safe** (in your password manager or a backup, say): updates have to be signed with the same
+key. If you lose it, you'll have to uninstall the app and install it again. It isn't committed to git either.
 
 ---
 
-## 7. Actualizar, volver al original y problemas
+## 6. Switch it on on the TV
 
-**Actualizar** (cambiaste `config.properties` o bajaste código nuevo con `git pull`): repite el paso 5 (`./build.sh`,
-`adb connect`, `adb install -r FreeMyTV.apk`). No hace falta volver a activarlo.
+1. On the TV, open the **Free My TV** app (it's in your apps).
+2. Go to **Home Screen** and choose **Free My TV**.
+3. The TV asks *Allow USB debugging?* once more: it's the app using the TV's own ADB to make the switch. Tick **Always
+   allow** and accept.
+4. Press the remote's home button: you're on the new home screen.
 
-**Volver al original:** en la TV, *Free My TV* → *Home Screen* → *Original*. El home de fábrica, el protector de
-pantalla y todas las apps vuelven tal como estaban. Para quitarlo del todo, primero cambia a *Original* y después
-desinstala *Free My TV* desde Ajustes → Apps. Si el home nuevo falla tres veces en cinco minutos, vuelve al original
-solo.
+The first load of picks takes about 3 minutes and repeats every 6 hours, in the background. To see what the switch did:
+`adb logcat -s FreeMyTV`.
 
-| Problema | Qué hacer |
+Don't switch modes from the computer: always do it from the app on the TV.
+
+---
+
+## 7. Updating, going back and problems
+
+**Updating** (you changed `config.properties` or got new code with `git pull`): repeat step 5 (`./build.sh`,
+`adb connect`, `adb install -r FreeMyTV.apk`). No need to switch it on again.
+
+**Going back:** on the TV, *Free My TV* → *Home Screen* → *Original*. The factory home screen, screensaver and every app
+come back exactly as they were. To remove it for good, switch to *Original* first, then uninstall *Free My TV* from
+Settings → Apps. If the new home screen crashes three times in five minutes, it switches back by itself.
+
+| Problem | What to do |
 |---|---|
-| `adb connect` dice `failed to connect` o `timed out` | Revisa la IP y que la TV y la computadora estén en la misma red. Comprueba que la *Depuración por USB* (y la *por red*, si existe) sigan activas. Apaga y prende la TV y vuelve a intentar. |
-| `adb devices` dice `unauthorized` | Acepta el aviso en la TV. Si no aparece: `adb disconnect`, luego otra vez `adb connect`. |
-| `adb install` dice `INSTALL_FAILED_UPDATE_INCOMPATIBLE` | La app instalada se firmó con otra llave (perdiste `freemytv.keystore`). Cambia a *Original*, desinstala Free My TV y vuelve a instalar. |
-| `Android SDK not found` | Instala el SDK (paso 1) o exporta `ANDROID_HOME` con su ruta. |
-| `Android platform not found` | Corre `sdkmanager "platforms;android-34"`. |
-| `JDK not found` | Instala el JDK 17 o usa `JAVA_HOME=…` (paso 5). |
-| `latitude must be a number` | En `config.properties`, usa punto decimal y sin comillas: `19.4326`. |
-| El home sale vacío o dice que falta la llave de TMDB | Revisa `tmdb_key`, recompila e instala. Espera unos 3 minutos a la primera carga. |
-| No hay Continuar viendo | Revisa `stremio_key` y que tengas algo empezado en Stremio. Si cambiaste la contraseña de Stremio o cerraste sesión en todos lados, saca la llave otra vez. |
-| Un título de Stremio no se reproduce en el reproductor propio | Ese título no tiene enlaces directos en tus add-ons; ábrelo en la app de Stremio. Los 4K y Dolby Vision se prueban al final porque algunas TVs no los decodifican. |
-| Los tráilers salen en inglés o sin sonido | TMDB no tiene uno en español. Agrega `youtube_key`; si ya la tienes, quizá se acabaron las búsquedas del día. |
-| El botón de Netflix (u otro atajo) del control no hace nada | En algunas TVs (TCL) esos atajos dependen del home de fábrica; descansan mientras Free My TV está activo y vuelven con *Original*. |
+| `adb connect` says `failed to connect` or `timed out` | Check the IP and that the TV and the computer are on the same network. Check *USB debugging* (and *Network debugging*, if there is one) is still on. Turn the TV off and on and try again. |
+| `adb devices` says `unauthorized` | Accept the prompt on the TV. If it doesn't show up: `adb disconnect`, then `adb connect` again. |
+| `adb install` says `INSTALL_FAILED_UPDATE_INCOMPATIBLE` | The installed app was signed with another key (you lost `freemytv.keystore`). Switch to *Original*, uninstall Free My TV and install again. |
+| `Android SDK not found` | Install the SDK (step 1) or export `ANDROID_HOME` with its path. |
+| `Android platform not found` | Run `sdkmanager "platforms;android-34"`. |
+| `JDK not found` | Install JDK 17 or use `JAVA_HOME=…` (step 5). |
+| `latitude must be a number` | In `config.properties`, use a decimal point and no quotes: `19.4326`. |
+| The home screen is empty or says the TMDB key is missing | Check `tmdb_key`, rebuild and install. Give the first load about 3 minutes. |
+| No Continue watching | Check `stremio_key` and that you have something started on Stremio. If you changed your Stremio password or signed out everywhere, get the key again. |
+| A Stremio title won't play in the player | That title has no direct links in your add-ons; open it in the Stremio app. 4K and Dolby Vision streams are tried last because some TVs can't decode them. |
+| Trailers are in English or muted | TMDB has no Spanish one. Add `youtube_key`; if you already have it, the day's searches may have run out. |
+| The remote's Netflix button (or another shortcut) does nothing | On some TVs (TCL) those shortcuts belong to the factory home screen; they rest while Free My TV is on and come back with *Original*. |
 
-## Notas
+## Notes
 
-- **TVs Hisense** (y otras sin `cmd role get-role-holders`): ya está resuelto; el cambio de home detecta el home de
-  fábrica de otra forma.
-- **Nunca subas** `config.properties`, `freemytv.keystore` ni ninguna llave. `.gitignore` ya los excluye.
-- ¿Algo no está aquí? Abre un issue en este repositorio (sin pegar tus llaves).
+- **Hisense TVs** (and others without `cmd role get-role-holders`): already handled; the switch finds the factory home
+  screen another way.
+- **Never commit** `config.properties`, `freemytv.keystore` or any key. `.gitignore` already leaves them out.
+- Something missing here? Open an issue on this repository (without pasting your keys).

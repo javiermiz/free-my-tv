@@ -3,7 +3,8 @@
 A home screen for Google TV and Android TV that replaces the stock one, plus a settings app that switches between
 Free My TV and the TV's original home screen. A plain Android app in Java, built without Gradle by `build.sh`.
 This is a fork of github.com/simbasjungles/free-my-tv (MIT) with a streaming-style home (`FlixView`). It has no
-website: the README and SETUP.md (Spanish, every install step) are the docs, so keep them up to date.
+website: the docs are README.md and SETUP.md (every install step), in English, with Spanish copies in
+README.es.md and SETUP.es.md. They're the same docs in two languages, so change both and keep them up to date.
 
 The person you're helping may not be technical. Keep it short and friendly, say what you're about to do on their TV
 before you do it, and let them do the taps on the TV.

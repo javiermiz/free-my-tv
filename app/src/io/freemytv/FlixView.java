@@ -505,9 +505,10 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
                 if (down) {
                     if (e.getRepeatCount() == 0) okDown = true;
                     else if (okDown && !okLong && !moving) {
-                        // Held: its menu, right away (releasing then does nothing); nothing to show, it opens on release.
+                        // Held: its menu, right away; nothing to show, it opens on release. The menu gets the release, so
+                        // the press is over here (else the next hold would count as long already and open the title).
                         okLong = true;
-                        if (editMenu()) okDown = false;
+                        if (editMenu()) okDown = okLong = false;
                     }
                 } else {
                     if (moving) moving = false;

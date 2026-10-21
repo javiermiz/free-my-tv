@@ -714,7 +714,7 @@ final class FlixView extends FrameLayout implements Recs.Listener, HomeData.List
                 } else if (sideIndex == SIDE_APPS) {
                     startOutside(new android.content.Intent(activity, AppsActivity.class));
                 } else if (sideIndex == SIDE_ITEMS - 1) {
-                    startOutside(new android.content.Intent(android.provider.Settings.ACTION_SETTINGS));
+                    startOutside(new android.content.Intent(activity, SettingsActivity.class));   // the TV's are in there
                 } else {
                     if (sideIndex - 1 != tab) selectTab(sideIndex - 1);
                     focusRow = -1;

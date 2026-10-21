@@ -204,7 +204,7 @@ public class SettingsActivity extends Activity {
 
         /** How many choices the section has on the right (0: none, OK on it does what it says). */
         private int options(int s) {
-            return s == HOME ? 2 : s == LANGUAGE ? Ui.LANGUAGES.length : s == SCREENSAVER ? 1 : 0;
+            return s == HOME ? 2 : s == LANGUAGE ? Ui.LANGUAGES.length : s == SCREENSAVER || s == TV ? 1 : 0;
         }
 
         private String sectionName(int s) {
@@ -302,9 +302,9 @@ public class SettingsActivity extends Activity {
                         "Medido nesta TV ao trocar a tela inicial."); break;
                 case NOTICES: about = Ui.t("Lo último que hizo Free My TV.", "What Free My TV did last.",
                         "O que o Free My TV fez por último."); break;
-                default: about = Ui.t("Imagen, sonido, red, cuentas y apps: los ajustes de siempre de la TV. OK para abrirlos.",
-                        "Picture, sound, network, accounts and apps: the TV's own settings. OK to open them.",
-                        "Imagem, som, rede, contas e apps: os ajustes de sempre da TV. OK para abrir.");
+                default: about = Ui.t("Imagen, sonido, red, cuentas y apps: los ajustes de siempre de la TV.",
+                        "Picture, sound, network, accounts and apps: the TV's own settings.",
+                        "Imagem, som, rede, contas e apps: os ajustes de sempre da TV.");
             }
             y = drawWrapped(c, about, x, y + 20 * k) + (options(section) > 0 ? 40 : 70) * k;
 
@@ -318,7 +318,10 @@ public class SettingsActivity extends Activity {
                 case RECS: drawRecs(c, x, y); break;
                 case SPEED: drawComparison(c, x, y); break;
                 case NOTICES: drawNotices(c, x, y, 6); break;
-                default: break;
+                default:
+                    drawOption(c, 0, x, y, Ui.t("Abrir ajustes de la TV", "Open TV Settings", "Abrir ajustes da TV"),
+                            Ui.t("Atrás vuelve aquí.", "Back comes back here.", "Voltar volta para cá."), false, false);
+                    break;
             }
         }
 
@@ -541,8 +544,10 @@ public class SettingsActivity extends Activity {
         private void activate() {
             Context c = getContext();
             if (option < 0) {
-                if (section == TV) activity.startActivity(new Intent(Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
-                else enter();
+                enter();
+            } else if (section == TV) {
+                option = -1;
+                activity.startActivity(new Intent(Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
             } else if (section == HOME) {
                 boolean wantFree = option == 0;
                 if (wantFree != freeActive() && !busy()) {
